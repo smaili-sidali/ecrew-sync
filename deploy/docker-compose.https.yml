@@ -1,0 +1,24 @@
+# Optional: HTTPS via Caddy (automatic Let's Encrypt certificates).
+# Enable with:  ./deploy.sh https   (Linux/macOS)
+#               .\deploy.ps1 -Https (Windows)
+#
+# Set the domain + email in deploy/Caddyfile first, and point your DNS
+# A record at this server.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - ecrew-sync
+
+volumes:
+  caddy_data:
+  caddy_config:

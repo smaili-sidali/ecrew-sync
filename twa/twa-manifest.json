@@ -1,0 +1,38 @@
+{
+  "packageId": "com.ecrewsync.twa",
+  "host": "roster.example.com",
+  "name": "eCrew Sync",
+  "launcherName": "eCrew",
+  "display": "standalone",
+  "themeColor": "#0b1f3a",
+  "themeColorDark": "#0b1f3a",
+  "navigationColor": "#0b1f3a",
+  "navigationColorDark": "#0b1f3a",
+  "navigationDividerColor": "#0b1f3a",
+  "navigationDividerColorDark": "#0b1f3a",
+  "backgroundColor": "#14305c",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://roster.example.com/icons/icon-192.png",
+  "maskableIconUrl": "https://roster.example.com/icons/maskable-512.png",
+  "monochromeIconUrl": null,
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://roster.example.com/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "minSdkVersion": 21,
+  "orientation": "portrait"
+}

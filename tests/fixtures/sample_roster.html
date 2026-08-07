@@ -1,0 +1,62 @@
+<!--
+  Synthetic A1 "My Schedule" fragment mirroring the structure the site's JS
+  consumes (see eCrewDayPilot.js / NOTES.md): a <script> assigning the
+  DayPilot event list to InitialSchedulerEvents, plus a plain fallback table.
+
+  Verify/replace this with a real capture when available:
+      python -m cli.main login-test   ->  debug_roster_view.html
+-->
+<div id="rt-details-schedule">
+  <script type="text/javascript">
+    var InitialSchedulerEvents =
+    [
+      {
+        "id": "35739_2026-08-15_2026-08-15_AH6001",
+        "start": "2026-08-15T08:00:00",
+        "end": "2026-08-15T10:00:00",
+        "type": "Flight",
+        "resource": "A",
+        "text": "AH6001 ALG - ORN",
+        "location": "ALG",
+        "ver": 0
+      },
+      {
+        "id": "35739_2026-08-15_2026-08-15_H-1",
+        "start": "2026-08-15T10:00:00",
+        "end": "2026-08-15T14:00:00",
+        "type": "Off",
+        "resource": "A",
+        "text": "OFF DUTY",
+        "ver": 0
+      },
+      {
+        "id": "35739_2026-08-16_2026-08-16_1",
+        "start": "2026-08-16T00:00:00",
+        "end": "2026-08-16T23:59:59",
+        "type": "Standby",
+        "resource": "A",
+        "text": "STANDBY",
+        "ver": 0
+      },
+      {
+        "id": "35739_2026-08-16_2026-08-16_2",
+        "start": "2026-08-16T20:00:00",
+        "end": "2026-08-16T23:59:59",
+        "type": "Flight",
+        "resource": "A",
+        "text": "AH6002",
+        "location": "ORN / ALG",
+        "ver": 0
+      },
+      {
+        "id": "35739_2026-08-20_2026-08-20_3",
+        "start": "2026-08-20T00:00:00",
+        "end": "2026-08-20T23:59:59",
+        "type": "Training",
+        "resource": "A",
+        "text": "SIM 4H",
+        "ver": 0
+      }
+    ];
+  </script>
+</div>

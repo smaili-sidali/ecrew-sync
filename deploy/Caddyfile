@@ -1,0 +1,5 @@
+# Replace with your domain. Caddy will fetch a Let's Encrypt certificate
+# automatically for any domain it is pointed at.
+roster.example.com {
+    reverse_proxy ecrew-sync:8000
+}

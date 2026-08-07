@@ -1,0 +1,25 @@
+# Render Blueprint — deploy on Render free tier.
+# 1. Push this repo to GitHub.
+# 2. New > Blueprint > connect repo. Render auto-detects this file.
+services:
+  - type: web
+    name: ecrew-sync
+    runtime: docker
+    plan: free
+    dockerfilePath: deploy/Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ECREW_USERNAME
+        sync: false
+      - key: ECREW_PASSWORD
+        sync: false
+      - key: ECREW_BASE_URL
+        value: https://ecrew.airalgerie.dz/ecrew
+      - key: ECREW_DB_FILE
+        value: /data/roster.json
+      - key: ECREW_COOKIE_FILE
+        value: /data/session_state.json
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
