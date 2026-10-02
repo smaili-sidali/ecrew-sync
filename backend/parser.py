@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, asdict
-from typing import Any, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from bs4 import BeautifulSoup
 
@@ -60,15 +60,15 @@ class ParseError(RuntimeError):
 class DutyEntry:
     date: str
     duty_type: str
-    flight_number: Optional[str] = None
-    report_time: Optional[str] = None
-    departure_time: Optional[str] = None
-    departure_airport: Optional[str] = None
-    arrival_time: Optional[str] = None
-    arrival_airport: Optional[str] = None
-    layover_hotel: Optional[str] = None
-    layover_until: Optional[str] = None
-    raw: Optional[str] = None
+    flight_number: str | None = None
+    report_time: str | None = None
+    departure_time: str | None = None
+    departure_airport: str | None = None
+    arrival_time: str | None = None
+    arrival_airport: str | None = None
+    layover_hotel: str | None = None
+    layover_until: str | None = None
+    raw: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -88,7 +88,7 @@ def _get(ev: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _clean(value: Any) -> Optional[str]:
+def _clean(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
@@ -120,8 +120,11 @@ def _iter_events_blocks(html: str):
                 body = html[eq_start : end + 1]
                 parsed = _try_json(body)
                 if parsed is None:
-                    # JS objects have unquoted keys — retry with them quoted.
-                    parsed = _try_json(_quote_js_keys(body))
+                    # JS literals: bare keys and/or single quotes, and often a
+                    # trailing comma before a closing bracket.
+                    parsed = _try_json(_strip_trailing_commas(_normalize_js(body)))
+                if parsed is None:
+                    parsed = _try_json(_strip_trailing_commas(body))
                 if parsed is not None:
                     if isinstance(parsed, list):
                         yield m.group(1), parsed
@@ -136,11 +139,81 @@ def _iter_events_blocks(html: str):
         pos = eq_start + 1
 
 
+def _strip_trailing_commas(text: str) -> str:
+    """Remove commas that directly precede a closing ] or } (valid JS, not JSON)."""
+    return re.sub(r",(\s*[}\]])", r"\1", text)
+
+
 def _try_json(body: str):
     try:
         return json.loads(body)
     except ValueError:
         return None
+
+
+def _normalize_js(body: str) -> str:
+    """Make a JavaScript object literal acceptable to ``json.loads``.
+
+    Handles the two things that commonly differ from JSON in inline portal
+    scripts: bare unquoted keys, and single-quoted string values.
+    """
+    quoted = _quote_js_keys(body)
+    return _single_to_double_quotes(quoted)
+
+
+def _single_to_double_quotes(text: str) -> str:
+    """Rewrite 'single quoted' JS strings as "double quoted".
+
+    Quote characters that appear inside a double-quoted string are left alone,
+    and escaped quotes are handled. This is a pragmatic transform: a lone
+    apostrophe inside a double-quoted value is the common case and is safe.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    in_dq = False
+    while i < n:
+        ch = text[i]
+        if in_dq:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_dq = False
+            i += 1
+            continue
+        if ch == '"':
+            in_dq = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            # Copy the single-quoted string across, re-quoted as double.
+            j = i + 1
+            buf = []
+            while j < n:
+                c = text[j]
+                if c == "\\" and j + 1 < n:
+                    nxt = text[j + 1]
+                    buf.append('"' if nxt == "'" else nxt)
+                    j += 2
+                    continue
+                if c == "'":
+                    break
+                if c == '"':
+                    buf.append('\\"')
+                    j += 1
+                    continue
+                buf.append(c)
+                j += 1
+            out.append('"' + "".join(buf) + '"')
+            i = j + 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _quote_js_keys(text: str) -> str:
@@ -198,22 +271,36 @@ def _quote_js_keys(text: str) -> str:
 _ASSIGN_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*=\s*")
 
 
-def _scan_bracket(html: str, open_idx: int) -> Optional[int]:
-    """Return index of the matching closing bracket/brace, or None if unbalanced."""
+def _scan_bracket(html: str, open_idx: int) -> int | None:
+    """Return index of the matching closing bracket/brace, or None if unbalanced.
+
+    Tracks the active quote character so that brackets *inside* strings are
+    ignored, for both "double" and 'single' quoted JavaScript.
+    """
     stack = []
-    in_str = False
+    quote: str | None = None
     i = open_idx
     while i < len(html):
         ch = html[i]
-        if in_str:
+        if quote:
             if ch == "\\":
                 i += 2
                 continue
-            if ch == '"':
-                in_str = False
+            if ch == quote:
+                quote = None
         else:
-            if ch == '"':
-                in_str = True
+            if ch in "\"'":
+                quote = ch
+            elif ch == "/" and html[i : i + 2] in ("//", "/*"):
+                # Skip a line/block comment so stray brackets inside it are
+                # not counted.
+                if html[i : i + 2] == "//":
+                    nl = html.find("\n", i)
+                    i = len(html) if nl == -1 else nl
+                    continue
+                end_c = html.find("*/", i)
+                i = len(html) if end_c == -1 else end_c + 2
+                continue
             elif ch in "[{":
                 stack.append("]" if ch == "[" else "}")
             elif ch in "]}":
@@ -229,22 +316,58 @@ def _scan_bracket(html: str, open_idx: int) -> Optional[int]:
     return None
 
 
-def _extract_events(html: str) -> Optional[list]:
-    """Best-effort: return a list of event dicts from the fragment."""
+def _extract_events(html: str) -> list | None:
+    """Best-effort: return the most roster-like list of event dicts.
+
+    Scoring by list length alone is fragile: a page can easily carry a longer
+    array of something else (airports, crew ids, legend entries). We instead
+    score each candidate on how many of its dicts look like a DayPilot duty
+    (a parsable start date, plus a type/id/text), and only fall back to raw
+    length as a tie-breaker.
+    """
     blocks = list(_iter_events_blocks(html))
     if not blocks:
         return None
 
-    # Prefer the biggest list of dicts (that's the roster).
-    best: Optional[list] = None
-    for name, parsed in blocks:
+    best: list | None = None
+    best_score: tuple[int, int] = (-1, -1)
+    for _name, parsed in blocks:
         if not isinstance(parsed, list) or not parsed:
             continue
         if not all(isinstance(x, dict) for x in parsed):
             continue
-        if best is None or len(parsed) > len(best):
-            best = parsed
+        score = _roster_score(parsed)
+        if score > best_score:
+            best, best_score = parsed, score
+
+    # Only accept a block that actually contained recognisable duties.
+    if best is None or best_score[0] == 0:
+        return None
     return best
+
+
+# Keys that mark a dict as a DayPilot duty event.
+_EVENT_HINT_KEYS = ("start", "end", "type", "id", "text", "resource", "location")
+
+
+def _roster_score(events: list) -> tuple[int, int]:
+    """(number of duty-like dicts, total size) — used to rank candidate arrays."""
+    duty_like = 0
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        has_date = _clean(_get(ev, "start", "start_time", "date")) is not None
+        if not has_date:
+            has_date = _DATE_RE.search(str(_get(ev, "id", default="") or "")) is not None
+        if not has_date:
+            continue
+        # A date alone is not enough — require at least one more event-ish key
+        # so arrays of {"date": ..., "value": ...} statistics are not mistaken
+        # for the roster.
+        extras = sum(1 for k in _EVENT_HINT_KEYS if _get(ev, k) is not None)
+        if extras >= 2:
+            duty_like += 1
+    return (duty_like, len(events))
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +378,7 @@ def _extract_events(html: str) -> Optional[list]:
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
 
-def _event_to_entry(ev: dict) -> Optional[DutyEntry]:
+def _event_to_entry(ev: dict) -> DutyEntry | None:
     start = _clean(_get(ev, "start", "start_time", "date"))
     end = _clean(_get(ev, "end", "end_time"))
     if not start:

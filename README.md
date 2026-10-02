@@ -1,6 +1,6 @@
-<div align="center">
+?<div align="center">
 
-# ✈️ eCrew Sync
+# ✈️? eCrew Sync
 
 **Your Air Algérie roster, wherever you are.**
 
@@ -11,9 +11,41 @@ A self-hosted tool that logs into the **eCrew portal**, pulls your duty roster, 
 ![PWA](https://img.shields.io/badge/PWA-ready-5A0FC8?style=for-the-badge)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-TWA%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-11%20passing-2ea44f?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-142%20passing-2ea44f?style=for-the-badge)
+![CI](https://img.shields.io/badge/CI-142%20tests%20+%20ruff-2ea44f?style=for-the-badge)
 
 </div>
+
+---
+
+## ⚠️? Status: the portal contract is still unverified
+
+The reverse-engineering in [`NOTES.md`](NOTES.md) is solid, but **the roster
+payload shape has never been confirmed against the live portal.** Every test in
+this repo runs against `tests/fixtures/sample_roster.html`, which is a
+**synthetic** fixture modelled on the site's JavaScript contract — not a real
+capture.
+
+So the project ships with a **contract canary** that tells you *which* of the
+plausible portal changes broke things, instead of a bare "no duties found":
+
+| Status | Meaning | What to do |
+|---|---|---|
+| `ok` | Contract intact | Nothing |
+| `lazy_loaded` | Container returned, no duty rows | Capture the follow-up XHR in DevTools → Network |
+| `no_event_array` | The `name = [...]` array is gone | Re-run recon, update the parser |
+| `unrecognised_fields` | Events found, but keys were renamed | Extend the alias lists in `parser._get()` |
+| `suspiciously_few` | Fewer events than a real roster | Check for a truncated/paginated payload |
+
+**Check it in ~5 minutes:**
+
+```bash
+python -m cli.main login-test
+```
+
+If it reports `contract intact`, the single highest-value next step is to
+replace the synthetic fixture with that capture (anonymised) so the whole test
+suite runs against reality.
 
 ---
 
@@ -25,10 +57,14 @@ A self-hosted tool that logs into the **eCrew portal**, pulls your duty roster, 
 | 📅 **Roster parsing** | DayPilot roster fragments → structured duties (flight / off / standby / training / layover) |
 | 📱 **Installable PWA** | Add to home screen on Android/iOS — dark mode, month navigation, live stats |
 | 🤖 **Background sync** | Every 6 h, debounced, with change detection (writes nothing when nothing changed) |
-| 🗓 **ICS calendar export** | One tap to add your roster to Google Calendar / Apple Calendar / Outlook |
-| 📡 **JSON API** | `roster`, `sync`, `health`, `export.ics` endpoints |
+| 🗓 **Live calendar feed** | Subscribe once; edits update in place (stable UIDs, `LAST-MODIFIED`) |
+| 🩺 **Contract canary** | Classifies portal drift instead of silently serving a stale roster |
+| 🔔 **Webhook alerts** | Told when your roster changes, a sync fails, or the portal changes shape |
+| 🔐 **Optional API token** | One env var locks down every endpoint (constant-time compare) |
+| 📡 **JSON API** | `health`, `roster`, `sync`, `contract`, `calendar.ics`, `export.ics` |
+| 🧾 **Structured logs** | One JSON object per line, ready for a log shipper |
 | 📦 **Android APK** | Trusted Web Activity build (Bubblewrap) — a real launcher app, ~2 MB |
-| 🐳 **One-command deploy** | Docker + Caddy HTTPS, or Render free tier |
+| 🐳 **One-command deploy** | Docker + Caddy HTTPS, or Render |
 
 ---
 
@@ -51,10 +87,12 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 
 | Command | What it does |
 |---|---|
-| `python cli\main.py sync` | One-shot login → fetch → parse → store |
+| `python cli\main.py login-test` | **Phase 0 check.** Fetch + diagnose whether the portal contract holds |
+| `python cli\main.py verify` | Compare the live portal against your stored roster (read-only) |
+| `python cli\main.py sync` | One-shot login → fetch → parse → store, reporting changes |
 | `python cli\main.py show --month 2026-08` | Print the roster to the console |
 | `python cli\main.py export-ics out.ics` | Calendar export (`.ics`) |
-| `python cli\main.py login-test` | Live login + fetch, saves the raw HTML for debugging |
+| `python cli\main.py token` | Generate a strong random `ECREW_API_TOKEN` |
 | `python cli\main.py web` | Start the PWA server |
 
 ---
@@ -62,7 +100,7 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 ## 🧠 How it works
 
 ```
-┌──────────┐   POST /ecrew/Login/<token>   ┌────────────────┐
+┌────────────┐   POST /ecrew/Login/<token>   ┌───────────────────┐
 │          │ ◄──────────────────────────── │  backend/      │
 │  eCrew   │                               │  ├ auth.py     │
 │  portal  │                               │  ├ fetch.py    │
@@ -72,13 +110,13 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 │          │                               │  └ export.py   │  .ics calendar
 └──────────┘                               └──────┬───────┘
                                                   │
-                     ┌───────────┐  ┌─────────────▼──────────┐
+                     ┌─────────────┐  ┌────────────────▼───────────┐
                      │  PWA app  │  │  FastAPI + scheduler   │
                      │ (frontend)│ ◄┤  server/api.py         │
                      └───────────┘  └────────────────────────┘
 ```
 
-> ℹ️ The portal authenticates with **no cookies at all** — a client-generated `eCrewHeader` UUID plus a rotating `RequestVerificationToken`. Full reverse-engineering notes live in [`NOTES.md`](NOTES.md).
+> ℹ️? The portal authenticates with **no cookies at all** — a client-generated `eCrewHeader` UUID plus a rotating `RequestVerificationToken`. Full reverse-engineering notes live in [`NOTES.md`](NOTES.md).
 
 ---
 
@@ -86,11 +124,55 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/health` | GET | Service + sync status, last sync time |
-| `/api/roster?month=2026-08` | GET | Stored roster (optionally filtered by month) |
-| `/api/sync` | POST | Trigger a background sync now |
-| `/api/export.ics` | GET | Download the roster as a calendar file |
+| `/api/health` | GET | Service + sync status, `roster_state` (no token needed) |
+| `/api/roster?month=2026-08` | GET | Stored roster, optionally filtered by month |
+| `/api/sync?force=1` | POST | Trigger a sync; `force` bypasses the debounce |
+| `/api/calendar.ics` | GET | **Subscribable** calendar feed (stays current) |
+| `/api/export.ics` | GET | One-shot `.ics` download |
+| `/api/contract` | GET | Portal contract canary report (no token needed) |
 | `/` | GET | The PWA itself |
+
+> All routes except `/api/health` and `/api/contract` require
+> `ECREW_API_TOKEN` when it is set. Send `Authorization: Bearer <token>` or
+> `?token=<token>`.
+
+---
+
+## 📆 Subscribing to your calendar
+
+`/api/export.ics` downloads a **snapshot** — static the moment you import it.
+For a calendar that stays current, subscribe to the feed instead:
+
+| App | How |
+|---|---|
+| Google Calendar | Settings → Other calendars → **From URL** → `webcal://your-host/api/calendar.ics` |
+| Apple Calendar | File → New Calendar Subscription → `https://your-host/api/calendar.ics` |
+| Outlook | Add calendar → Subscribe from web → same URL |
+
+With `ECREW_API_TOKEN` set, append `?token=<your-token>` (calendar apps can't
+send custom headers).
+
+This works because of two properties built into the export:
+
+- **Stable UIDs** — an edited duty *updates in place* instead of appearing twice.
+- **`LAST-MODIFIED`** — lets the client tell "unchanged" from "needs refresh".
+
+Then the Sync button becomes almost irrelevant for calendar users.
+
+---
+
+## 🔔 Getting told when things change
+
+The app syncs unattended, so a silent failure is the dangerous kind. Set a
+webhook and you'll hear about it:
+
+```bash
+ECREW_WEBHOOK_URL=https://ntfy.sh/my-private-topic
+```
+
+A JSON POST is sent when the roster changes, when a sync fails, and when the
+contract canary detects drift. Failures are logged and swallowed — a dead
+webhook can never break a sync.
 
 ---
 
@@ -120,7 +202,7 @@ cd ecrew-sync
 1. Set your domain in `deploy/Caddyfile` and point DNS at the server.
 2. `./deploy.sh https` — Caddy obtains Let's Encrypt certs automatically.
 
-### ☁️ Render (free tier, zero setup)
+### ☁️️ Render
 
 1. Push this repo to GitHub.
 2. Render dashboard → **New → Blueprint** → connect the repo.
@@ -128,12 +210,25 @@ cd ecrew-sync
    `ECREW_USERNAME` / `ECREW_PASSWORD` (secrets).
 4. Done — HTTPS URL provided automatically.
 
-### ⚙️ Manual (no Docker)
+> ⚠️? `render.yaml` targets the **`starter`** plan, not `free`. Render's free tier
+> has no persistent disk (so `roster.json` is lost on every deploy) and idles
+> out after a few minutes, meaning a 6-hourly background sync would never fire.
+> Switch `plan: free` and delete the `disk:` block if you only want on-demand
+> syncs from the app.
+
+**🔒 Before exposing it publicly:** the API is unauthenticated and serves your
+roster to anyone who reaches the URL. Put it behind a private network, a VPN, or
+Caddy basic auth.
+
+### ⚙️? Manual (no Docker)
 
 ```bash
 pip install -r requirements.txt
 python -m uvicorn server.api:app --host 0.0.0.0 --port 8000
 ```
+
+> Use a **single** worker. The background scheduler and its in-flight lock are
+> per-process, so multiple workers would each run their own 6-hourly sync.
 
 ---
 
@@ -153,7 +248,7 @@ with no browser chrome.
   **Android SDK** (`bubblewrap` can download a JDK for you, but needs the SDK).
 - Node.js ≥ 18 (to run Bubblewrap).
 
-> ℹ️ The APK just wraps the website — it doesn't need the backend's parser.
+> ℹ️? The APK just wraps the website — it doesn't need the backend's parser.
 > Data comes from your server, which parses the roster fragment
 > (`backend/parser.py`) into `roster.json`. The parser targets the
 > reverse-engineered DayPilot contract in `NOTES.md`; run `python -m cli.main
@@ -217,10 +312,31 @@ a normal installable Android APK.
 ## 🧪 Testing
 
 ```bash
-python -m pytest tests/ -q        # unit tests (parser, export)
-python -m cli.main login-test     # live login + fetch; saves debug_roster_view.html
-python -m cli.main web            # run the PWA locally (no credentials needed)
+pip install -r requirements-dev.txt
+python -m pytest -q          # 142 tests across 9 suites
+ruff check backend server cli tests
 ```
+
+| Suite | Covers |
+|---|---|
+| `tests/test_parser.py` | DayPilot event array + `<table>` fallback |
+| `tests/test_parser_contract.py` | Decoy arrays, bare JS keys, single quotes, unbalanced braces |
+| `tests/test_store.py` | Atomic writes, corrupt-store recovery, diff correctness |
+| `tests/test_export.py` | Timezone handling, all-day events, UID stability |
+| `tests/test_config.py` | Env resolution, shared defaults, `app_base()` derivation |
+| `tests/test_api.py` | Health, month validation, calendar feed, ICS, docs gating, token auth
+| `tests/test_contract.py` | Contract canary: each portal-drift failure mode
+| `tests/test_scheduler.py` | Drift protection, debounce, concurrency lock
+| `tests/test_notify.py` | Webhook delivery, failure isolation, JSON logs |
+
+Many of these exist because of bugs that were actually found and fixed —
+see [Known bugs fixed](#known-bugs-fixed) below.
+
+> The API tests need `httpx` (in `requirements-dev.txt`); they skip cleanly
+> without it.
+
+Run `python -m cli.main login-test` for a live end-to-end check against the
+real portal — that is the only test that proves the contract itself.
 
 ---
 
@@ -228,20 +344,23 @@ python -m cli.main web            # run the PWA locally (no credentials needed)
 
 ```
 ecrew-sync/
-├── backend/           # core logic: auth, fetch, parser, store, export
+├── backend/           # core logic: config, auth, fetch, parser, store, export
+│   ├── config.py      #   single source of truth for all env/path resolution
 │   ├── auth.py        #   header-session login (SHA-512, token rotation)
-│   ├── fetch.py       #   roster fetch (GetMenu A1) + session probing
-│   ├── parser.py      #   DayPilot fragment → DutyEntry
-│   ├── store.py       #   roster.json + change diffing
-│   └── export.py      #   .ics calendar generation
+│   ├── fetch.py       #   roster fetch (GetMenu A1) + re-login on expiry
+│   ├── parser.py      #   DayPilot fragment → DutyEntry (+ table fallback)
+│   ├── store.py       #   atomic roster.json + change diffing
+│   └── export.py      #   .ics calendar generation (timezone-correct)
 ├── server/            # FastAPI + background scheduler
-│   ├── api.py
-│   └── scheduler.py
+│   ├── api.py         #   /api/health, /api/roster, /api/sync, /api/export.ics
+│   └── scheduler.py   #   interval job, in-flight lock, change reporting
 ├── frontend/static/   # PWA: HTML/CSS/JS, manifest, service worker, icons
-├── cli/               # typer CLI (sync / show / export-ics / web)
-├── tests/             # unit tests + HTML fixtures
-├── deploy/            # Dockerfile, compose, Caddy HTTPS
-├── twa/               # Android TWA config (Bubblewrap)
+├── cli/               # typer CLI (login-test / sync / show / export-ics / web)
+├── tests/             # 85 tests + HTML fixture
+??? deploy/            # Dockerfile, compose, Caddy HTTPS
+??? twa/               # Android TWA config (Bubblewrap)
+├── .github/workflows/ # CI: ruff + pytest + gitignore assertions
+├── pyproject.toml     # deps, pytest + ruff config
 ├── deploy.sh / deploy.ps1    # one-command deployment
 ├── docker-compose.yml / render.yaml
 ├── NOTES.md           # reverse-engineering recon notes
@@ -254,10 +373,45 @@ ecrew-sync/
 
 - **Your credentials never leave your machine** — they're read from `.env`
   and only sent to `ecrew.airalgerie.dz`.
-- `.env`, session caches, and keystores are **gitignored**; a leaked push is
-  near-impossible by design.
-- The tool **refuses** to bypass password-change or 2FA (HOTP) prompts — if the
-  portal asks, it fails loudly and stops.
+- **Never commit your roster or session.** `roster.json` and
+  `session_state.json` contain real duty data and a live session UUID; both are
+  gitignored, and CI asserts it on every push.
+- **The API has no authentication.** Anyone who can reach your instance can read
+  your roster and trigger syncs. That is fine on a LAN or behind a VPN, but if
+  you expose it to the internet put it behind Caddy basic auth or a private
+  network. `/docs` and `/openapi.json` are **off by default** for the same
+  reason — set `ECREW_ENABLE_DOCS=1` only locally.
+- **The tool refuses to bypass password-change or 2FA (HOTP) prompts** — if the
+  portal asks, it fails loudly and stops. A non-empty login response body is
+  treated as a contract change rather than a success.
+
+---
+
+## 🐛 Known bugs fixed
+
+Each of these was a real defect found by testing, with a regression test that
+now prevents it returning:
+
+| Bug | Impact |
+|---|---|
+| `roster.json` / `session_state.json` not gitignored | `git add -A` would publish real duty data + a live session to a public repo |
+| Naive times exported with a `Z` suffix | Every duty shifted **+1 h** in Google/Apple/Outlook calendar |
+| `make_all_day()` floors in UTC | A 20 Aug day-off rendered as **19–21 Aug** |
+| ICS UID built from `entry.raw` (includes portal `ver`) | A portal edit created **duplicate** calendar events |
+| `store.save()` wrote in place, non-atomically | A crash left a truncated store that **500'd every read forever** |
+| `store.load()` raised on a corrupt store | Same — one bad byte made the app unusable |
+| `store.diff()` keyed on `(date, flight_number)` | An off→flight swap reported as **both** added *and* removed; change lost |
+| `diff()` used set difference | Non-deterministic ordering between identical runs |
+| `ECREW_*` read at import, before `load_dotenv()` | Local `.env` **silently ignored** (invisible in Docker) |
+| CLI vs scheduler session-file defaults differed | Two session files; one leaked past `.gitignore` |
+| `/api/roster?month=` unvalidated | Arbitrary string into the filter |
+| Parser ranked candidate arrays by length | A 300-item **airport list** beat the 30-item roster |
+| Bracket scanner ignored `//` and `/* */` | A stray bracket in a comment **truncated** the event block |
+| Single-quoted JS unsupported | Common inline-script style parsed to **zero** duties |
+| `on_event("startup")` | Deprecated FastAPI API |
+| Sync race (`STATUS["running"]` check) | Two concurrent triggers → **two portal logins** |
+| `NotImplementedError` caught in 4 places | Dead code; nothing ever raised it |
+| `keyring` in requirements | Unused dependency |
 
 ---
 
@@ -276,15 +430,19 @@ Push often, stay lazy. 🛋
 ## 🗺 Roadmap
 
 - [x] Login + session persistence
-- [x] Roster fetch (GetMenu A1)
-- [x] Parser (DayPilot events → duties) + table fallback
-- [x] JSON store + diffing, background scheduler
-- [x] PWA (installable, dark mode, month view)
-- [x] ICS export
+- [x] Roster fetch (GetMenu A1) + transparent re-login on session expiry
+- [x] Parser (DayPilot events → duties) + table fallback + decoy-array rejection
+- [x] Atomic JSON store, correct diffing, background scheduler
+- [x] PWA (installable, dark mode, month view, timezone-correct times)
+- [x] ICS export (correct timezone, all-day handling, duplicate-free UIDs)
 - [x] TWA scaffold (icons, manifest, `.well-known` wiring)
-- [ ] Verify parser against a live roster capture (diff `debug_roster_view.html` vs fixture)
+- [x] CI (142 tests + ruff + mypy) and a regression test per fixed bug
+- [ ] **Verify the parser against a live roster capture** — run
+      `python -m cli.main login-test` and diff `debug_roster_view.html` against
+      `tests/fixtures/sample_roster.html`. *This is the blocking item.*
 - [ ] Build & sign the APK (needs a JDK 17 + Android SDK machine)
 - [ ] Push notifications on roster changes (when `enableNotifications` is on)
+- [ ] Optional auth in front of the API for internet-facing deployments
 
 ---
 

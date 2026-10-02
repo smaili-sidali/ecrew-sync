@@ -1,4 +1,4 @@
-"""Tests for parse_roster() and export.entry_to_event()."""
+"""Tests for parse_roster(), store durability/diffing, config and ICS export."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from backend.parser import parse_roster, DutyEntry, ParseError
 from backend.export import entry_to_event, export_ics
-
+from backend.parser import DutyEntry, ParseError, parse_roster
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_roster.html"
 

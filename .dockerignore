@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 .git
+.github
 .gitignore
 data/
 *.db
@@ -15,6 +16,8 @@ __pycache__/
 venv/
 tests/
 debug_*.html
+pyproject.toml
+requirements-dev.txt
 README.md
 NOTES.md
 deploy.sh

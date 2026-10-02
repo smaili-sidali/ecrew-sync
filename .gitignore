@@ -14,6 +14,15 @@ session_*.pkl
 *.sqlite3
 data/
 
+# Roster store + cached session id.
+# These are the *local* defaults from backend/config.py and they contain real
+# personal duty data and a live session UUID. Without these entries a plain
+# `git add -A` (which the README recommends) publishes them to a public repo.
+roster.json
+session_state.json
+*.ics
+*.tmp
+
 # Debug artifacts (raw HTML from failed parses)
 debug_*.html
 debug_*.txt

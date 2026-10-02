@@ -1,13 +1,20 @@
-# Render Blueprint — deploy on Render free tier.
+# Render Blueprint — deploy on Render.
 # 1. Push this repo to GitHub.
 # 2. New > Blueprint > connect repo. Render auto-detects this file.
 services:
   - type: web
     name: ecrew-sync
     runtime: docker
-    plan: free
+    # NOTE: the free plan has no persistent disk, and it idles out after a few
+    # minutes of inactivity — so a 6-hourly background sync would never fire and
+    # roster.json would be lost on every deploy. Use `starter` (or any paid
+    # plan) if you rely on the disk below; on `free`, remove the disk block and
+    # trigger syncs manually from the app.
+    plan: starter
     dockerfilePath: deploy/Dockerfile
     healthCheckPath: /api/health
+    # Single worker on purpose: the scheduler and its lock are per-process.
+    numInstances: 1
     envVars:
       - key: ECREW_USERNAME
         sync: false
@@ -19,6 +26,11 @@ services:
         value: /data/roster.json
       - key: ECREW_COOKIE_FILE
         value: /data/session_state.json
+      - key: ECREW_TZ
+        value: Africa/Algiers
+      # Keep the API surface closed on a public URL.
+      - key: ECREW_ENABLE_DOCS
+        value: "0"
     disk:
       name: data
       mountPath: /data
