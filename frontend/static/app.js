@@ -7,42 +7,111 @@ const API = '/api';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-// Dictionnaire des principaux aéroports d'Air Algérie
+// Dictionnaire exhaustif du réseau mondial et domestique Air Algérie (94 aéroports)
 const AIRPORTS = {
-    ALG: { city: 'Alger', name: 'Houari Boumediene', country: 'Algérie' },
-    ORN: { city: 'Oran', name: 'Ahmed Ben Bella', country: 'Algérie' },
-    CZL: { city: 'Constantine', name: 'Mohamed Boudiaf', country: 'Algérie' },
-    AAE: { city: 'Annaba', name: 'Rabah Bitat', country: 'Algérie' },
-    CDG: { city: 'Paris', name: 'Charles de Gaulle', country: 'France' },
-    ORY: { city: 'Paris', name: 'Orly', country: 'France' },
-    MRS: { city: 'Marseille', name: 'Provence', country: 'France' },
-    LYS: { city: 'Lyon', name: 'Saint-Exupéry', country: 'France' },
-    TLS: { city: 'Toulouse', name: 'Blagnac', country: 'France' },
-    NCE: { city: 'Nice', name: 'Côte d\'Azur', country: 'France' },
-    LHR: { city: 'Londres', name: 'Heathrow', country: 'Royaume-Uni' },
-    FRA: { city: 'Francfort', name: 'Rhein-Main', country: 'Allemagne' },
-    GVA: { city: 'Genève', name: 'Cointrin', country: 'Suisse' },
-    BRU: { city: 'Bruxelles', name: 'Zaventem', country: 'Belgique' },
-    FCO: { city: 'Rome', name: 'Fiumicino', country: 'Italie' },
-    MXP: { city: 'Milan', name: 'Malpensa', country: 'Italie' },
-    MAD: { city: 'Madrid', name: 'Barajas', country: 'Espagne' },
-    BCN: { city: 'Barcelone', name: 'El Prat', country: 'Espagne' },
-    IST: { city: 'Istanbul', name: 'Grand Aéroport', country: 'Turquie' },
-    JED: { city: 'Djeddah', name: 'King Abdulaziz', country: 'Arabie Saoudite' },
-    MED: { city: 'Médine', name: 'Prince Mohammad', country: 'Arabie Saoudite' },
-    DXB: { city: 'Dubaï', name: 'International', country: 'Émirats Arabes Unis' },
-    DOH: { city: 'Doha', name: 'Hamad International', country: 'Qatar' },
-    CAI: { city: 'Le Caire', name: 'International', country: 'Égypte' },
-    TUN: { city: 'Tunis', name: 'Carthage', country: 'Tunisie' },
-    CMN: { city: 'Casablanca', name: 'Mohammed V', country: 'Maroc' },
-    YUL: { city: 'Montréal', name: 'Pierre-Elliott-Trudeau', country: 'Canada' },
-    PEK: { city: 'Pékin', name: 'Capital Airport', country: 'Chine' },
-    HME: { city: 'Hassi Messaoud', name: 'Oued Irara', country: 'Algérie' },
-    BJA: { city: 'Béjaïa', name: 'Soummam', country: 'Algérie' },
-    TLM: { city: 'Tlemcen', name: 'Zenata', country: 'Algérie' },
-    GHA: { city: 'Ghardaïa', name: 'Noumérat', country: 'Algérie' },
-    TMR: { city: 'Tamanrasset', name: 'Aguenar', country: 'Algérie' },
-    BSR: { city: 'Biskra', name: 'Mohamed Khider', country: 'Algérie' },
+    // --- 🇩🇿 Domestique Algérie (36 aéroports) ---
+    ALG: { icao: 'DAAG', name: 'Alger - Houari Boumédiène', city: 'Alger', country: 'Algérie', region: 'Algérie' },
+    ORN: { icao: 'DAOO', name: 'Oran - Ahmed Ben Bella', city: 'Oran', country: 'Algérie', region: 'Algérie' },
+    CZL: { icao: 'DABC', name: 'Constantine - Mohamed Boudiaf', city: 'Constantine', country: 'Algérie', region: 'Algérie' },
+    AAE: { icao: 'DABB', name: 'Annaba - Rabah Bitat', city: 'Annaba', country: 'Algérie', region: 'Algérie' },
+    TLM: { icao: 'DAON', name: 'Tlemcen - Zenata Messali Hadj', city: 'Tlemcen', country: 'Algérie', region: 'Algérie' },
+    BJA: { icao: 'DAAE', name: 'Béjaïa - Soummam Abane Ramdane', city: 'Béjaïa', country: 'Algérie', region: 'Algérie' },
+    BSK: { icao: 'DAUB', name: 'Biskra - Mohamed Khider', city: 'Biskra', country: 'Algérie', region: 'Algérie' },
+    BLJ: { icao: 'DAAB', name: 'Batna - Mostefa Ben Boulaïd', city: 'Batna', country: 'Algérie', region: 'Algérie' },
+    QSF: { icao: 'DAAS', name: 'Sétif - 8 Mai 1945', city: 'Sétif', country: 'Algérie', region: 'Algérie' },
+    TBJ: { icao: 'DABP', name: 'Tébessa - Cheikh Larbi Tébessi', city: 'Tébessa', country: 'Algérie', region: 'Algérie' },
+    GJL: { icao: 'DAAV', name: 'Jijel - Ferhat Abbas', city: 'Jijel', country: 'Algérie', region: 'Algérie' },
+    CFK: { icao: 'DAOI', name: 'Chlef - Aboubakr Belkaid', city: 'Chlef', country: 'Algérie', region: 'Algérie' },
+    TID: { icao: 'DAOB', name: 'Tiaret - Bou Chekif', city: 'Tiaret', country: 'Algérie', region: 'Algérie' },
+    EBH: { icao: 'DAOY', name: 'El Bayadh', city: 'El Bayadh', country: 'Algérie', region: 'Algérie' },
+    MZW: { icao: 'DAAY', name: 'Mécheria', city: 'Mécheria', country: 'Algérie', region: 'Algérie' },
+    MUW: { icao: 'DAOV', name: 'Mascara - Ghriss', city: 'Mascara', country: 'Algérie', region: 'Algérie' },
+    HME: { icao: 'DAUH', name: 'Hassi Messaoud - Oued Irara', city: 'Hassi Messaoud', country: 'Algérie', region: 'Algérie' },
+    OGX: { icao: 'DAUU', name: 'Ouargla - Aïn Beida', city: 'Ouargla', country: 'Algérie', region: 'Algérie' },
+    GHA: { icao: 'DAUG', name: 'Ghardaïa - Noumérat', city: 'Ghardaïa', country: 'Algérie', region: 'Algérie' },
+    ELU: { icao: 'DAUO', name: 'El Oued - Guemar', city: 'El Oued', country: 'Algérie', region: 'Algérie' },
+    TGR: { icao: 'DAUK', name: 'Touggourt - Sidi Mahdi', city: 'Touggourt', country: 'Algérie', region: 'Algérie' },
+    LOO: { icao: 'DAUL', name: 'Laghouat - Moulay Ahmed Medeghri', city: 'Laghouat', country: 'Algérie', region: 'Algérie' },
+    ELG: { icao: 'DAUE', name: 'El Goléa / El Ménia', city: 'El Goléa', country: 'Algérie', region: 'Algérie' },
+    HRM: { icao: 'DAFH', name: 'Hassi R\'Mel - Tilrhemt', city: 'Hassi R\'Mel', country: 'Algérie', region: 'Algérie' },
+    AZR: { icao: 'DAUA', name: 'Adrar - Touat Cheikh Sidi Mohamed', city: 'Adrar', country: 'Algérie', region: 'Algérie' },
+    TMX: { icao: 'DAUT', name: 'Timimoun', city: 'Timimoun', country: 'Algérie', region: 'Algérie' },
+    CBH: { icao: 'DAOR', name: 'Béchar - Boudghene Ben Ali Lotfi', city: 'Béchar', country: 'Algérie', region: 'Algérie' },
+    TIN: { icao: 'DAFI', name: 'Tindouf', city: 'Tindouf', country: 'Algérie', region: 'Algérie' },
+    TMR: { icao: 'DAAT', name: 'Tamanrasset - Aguenar', city: 'Tamanrasset', country: 'Algérie', region: 'Algérie' },
+    INF: { icao: 'DATG', name: 'In Guezzam', city: 'In Guezzam', country: 'Algérie', region: 'Algérie' },
+    INZ: { icao: 'DAUI', name: 'In Salah', city: 'In Salah', country: 'Algérie', region: 'Algérie' },
+    BMW: { icao: 'DATM', name: 'Bordj Badji Mokhtar', city: 'Bordj Badji Mokhtar', country: 'Algérie', region: 'Algérie' },
+    DJG: { icao: 'DAAJ', name: 'Djanet - Tiska', city: 'Djanet', country: 'Algérie', region: 'Algérie' },
+    VVZ: { icao: 'DAAP', name: 'Illizi - Takhamalt', city: 'Illizi', country: 'Algérie', region: 'Algérie' },
+    IAM: { icao: 'DAUZ', name: 'In Amenas - Zarzaitine', city: 'In Amenas', country: 'Algérie', region: 'Algérie' },
+    BFO: { icao: 'DAOC', name: 'Bou Saâda', city: 'Bou Saâda', country: 'Algérie', region: 'Algérie' },
+
+    // --- 🇪🇺 Europe (32 aéroports) ---
+    CDG: { icao: 'LFPG', name: 'Paris - Charles de Gaulle', city: 'Paris', country: 'France', region: 'Europe' },
+    ORY: { icao: 'LFPO', name: 'Paris - Orly', city: 'Paris', country: 'France', region: 'Europe' },
+    MRS: { icao: 'LFML', name: 'Marseille - Provence', city: 'Marseille', country: 'France', region: 'Europe' },
+    LYS: { icao: 'LFLL', name: 'Lyon - Saint-Exupéry', city: 'Lyon', country: 'France', region: 'Europe' },
+    LIL: { icao: 'LFQQ', name: 'Lille - Lesquin', city: 'Lille', country: 'France', region: 'Europe' },
+    TLS: { icao: 'LFBO', name: 'Toulouse - Blagnac', city: 'Toulouse', country: 'France', region: 'Europe' },
+    NCE: { icao: 'LFMN', name: 'Nice - Côte d\'Azur', city: 'Nice', country: 'France', region: 'Europe' },
+    BOD: { icao: 'LFBD', name: 'Bordeaux - Mérignac', city: 'Bordeaux', country: 'France', region: 'Europe' },
+    MLH: { icao: 'LFSB', name: 'Bâle-Mulhouse - EuroAirport', city: 'Mulhouse', country: 'France', region: 'Europe' },
+    MPL: { icao: 'LFMT', name: 'Montpellier - Méditerranée', city: 'Montpellier', country: 'France', region: 'Europe' },
+    MET: { icao: 'LFJL', name: 'Metz - Nancy Lorraine', city: 'Metz', country: 'France', region: 'Europe' },
+    BES: { icao: 'LFRB', name: 'Brest - Bretagne', city: 'Brest', country: 'France', region: 'Europe' },
+    LHR: { icao: 'EGLL', name: 'Londres - Heathrow', city: 'Londres', country: 'Royaume-Uni', region: 'Europe' },
+    LGW: { icao: 'EGKK', name: 'Londres - Gatwick', city: 'Londres', country: 'Royaume-Uni', region: 'Europe' },
+    MAD: { icao: 'LEMD', name: 'Madrid - Barajas', city: 'Madrid', country: 'Espagne', region: 'Europe' },
+    BCN: { icao: 'LEBL', name: 'Barcelone - El Prat', city: 'Barcelone', country: 'Espagne', region: 'Europe' },
+    ALC: { icao: 'LEAL', name: 'Alicante - Elche', city: 'Alicante', country: 'Espagne', region: 'Europe' },
+    PMI: { icao: 'LEPA', name: 'Palma de Majorque', city: 'Palma', country: 'Espagne', region: 'Europe' },
+    VLC: { icao: 'LEVC', name: 'Valence - Manises', city: 'Valence', country: 'Espagne', region: 'Europe' },
+    FCO: { icao: 'LIRF', name: 'Rome - Fiumicino', city: 'Rome', country: 'Italie', region: 'Europe' },
+    MXP: { icao: 'LIMC', name: 'Milan - Malpensa', city: 'Milan', country: 'Italie', region: 'Europe' },
+    FRA: { icao: 'EDDF', name: 'Francfort - Rhein-Main', city: 'Francfort', country: 'Allemagne', region: 'Europe' },
+    BRU: { icao: 'EBBR', name: 'Bruxelles - Zaventem', city: 'Bruxelles', country: 'Belgique', region: 'Europe' },
+    CRL: { icao: 'EBCI', name: 'Charleroi - Bruxelles Sud', city: 'Charleroi', country: 'Belgique', region: 'Europe' },
+    GVA: { icao: 'LSGG', name: 'Genève - Cointrin', city: 'Genève', country: 'Suisse', region: 'Europe' },
+    VIE: { icao: 'LOWW', name: 'Vienne - Schwechat', city: 'Vienne', country: 'Autriche', region: 'Europe' },
+    LIS: { icao: 'LPPT', name: 'Lisbonne - Humberto Delgado', city: 'Lisbonne', country: 'Portugal', region: 'Europe' },
+    SVO: { icao: 'UUEE', name: 'Moscou - Cheremetievo', city: 'Moscou', country: 'Russie', region: 'Europe' },
+    BUD: { icao: 'LHBP', name: 'Budapest - Ferenc Liszt', city: 'Budapest', country: 'Hongrie', region: 'Europe' },
+    IST: { icao: 'LTFM', name: 'Istanbul - Grand Aéroport', city: 'Istanbul', country: 'Turquie', region: 'Europe' },
+    SAW: { icao: 'LTFJ', name: 'Istanbul - Sabiha Gökçen', city: 'Istanbul', country: 'Turquie', region: 'Europe' },
+    AYT: { icao: 'LTAI', name: 'Antalya', city: 'Antalya', country: 'Turquie', region: 'Europe' },
+
+    // --- 🇸🇦 Moyen-Orient (7 aéroports) ---
+    JED: { icao: 'OEJN', name: 'Djeddah - King Abdulaziz', city: 'Djeddah', country: 'Arabie Saoudite', region: 'Moyen-Orient' },
+    MED: { icao: 'OEMA', name: 'Médine - Prince Mohammad', city: 'Médine', country: 'Arabie Saoudite', region: 'Moyen-Orient' },
+    RUH: { icao: 'OERK', name: 'Riyad - King Khalid', city: 'Riyad', country: 'Arabie Saoudite', region: 'Moyen-Orient' },
+    DXB: { icao: 'OMDB', name: 'Dubaï International', city: 'Dubaï', country: 'Émirats Arabes Unis', region: 'Moyen-Orient' },
+    DOH: { icao: 'OTHH', name: 'Doha - Hamad International', city: 'Doha', country: 'Qatar', region: 'Moyen-Orient' },
+    AMM: { icao: 'OJAI', name: 'Amman - Queen Alia', city: 'Amman', country: 'Jordanie', region: 'Moyen-Orient' },
+    BEY: { icao: 'OLBA', name: 'Beyrouth - Rafic Hariri', city: 'Beyrouth', country: 'Liban', region: 'Moyen-Orient' },
+
+    // --- 🌍 Afrique (14 aéroports) ---
+    TUN: { icao: 'DTTA', name: 'Tunis - Carthage', city: 'Tunis', country: 'Tunisie', region: 'Afrique' },
+    CMN: { icao: 'GMMN', name: 'Casablanca - Mohammed V', city: 'Casablanca', country: 'Maroc', region: 'Afrique' },
+    CAI: { icao: 'HECA', name: 'Le Caire International', city: 'Le Caire', country: 'Égypte', region: 'Afrique' },
+    SSH: { icao: 'HESH', name: 'Charm el-Cheikh', city: 'Charm el-Cheikh', country: 'Égypte', region: 'Afrique' },
+    DSS: { icao: 'GOBD', name: 'Dakar - Blaise Diagne', city: 'Dakar', country: 'Sénégal', region: 'Afrique' },
+    BKO: { icao: 'GABS', name: 'Bamako - Modibo Keïta', city: 'Bamako', country: 'Mali', region: 'Afrique' },
+    NIM: { icao: 'DRRN', name: 'Niamey - Diori Hamani', city: 'Niamey', country: 'Niger', region: 'Afrique' },
+    NKC: { icao: 'GQNO', name: 'Nouakchott - Oumtounsy', city: 'Nouakchott', country: 'Mauritanie', region: 'Afrique' },
+    OUA: { icao: 'DFFD', name: 'Ouagadougou - Thomas Sankara', city: 'Ouagadougou', country: 'Burkina Faso', region: 'Afrique' },
+    ABJ: { icao: 'DIAP', name: 'Abidjan - Félix Houphouët-Boigny', city: 'Abidjan', country: 'Côte d\'Ivoire', region: 'Afrique' },
+    DLA: { icao: 'FKKD', name: 'Douala International', city: 'Douala', country: 'Cameroun', region: 'Afrique' },
+    NDJ: { icao: 'FTTJ', name: 'N\'Djamena - Hassan Djamous', city: 'N\'Djamena', country: 'Tchad', region: 'Afrique' },
+    JNB: { icao: 'FAOR', name: 'Johannesburg - O.R. Tambo', city: 'Johannesburg', country: 'Afrique du Sud', region: 'Afrique' },
+    ADD: { icao: 'HAAB', name: 'Addis-Abeba - Bole', city: 'Addis-Abeba', country: 'Éthiopie', region: 'Afrique' },
+
+    // --- 🌎 Long-Courrier (5 aéroports) ---
+    YUL: { icao: 'CYUL', name: 'Montréal - Pierre-Elliott-Trudeau', city: 'Montréal', country: 'Canada', region: 'Long-Courrier' },
+    PEK: { icao: 'ZBAA', name: 'Pékin - Capitale', city: 'Pékin', country: 'Chine', region: 'Long-Courrier' },
+    PKX: { icao: 'ZBAD', name: 'Pékin - Daxing', city: 'Pékin', country: 'Chine', region: 'Long-Courrier' },
+    CAN: { icao: 'ZGGG', name: 'Canton - Baiyun', city: 'Canton', country: 'Chine', region: 'Long-Courrier' },
+    KUL: { icao: 'WMKK', name: 'Kuala Lumpur International', city: 'Kuala Lumpur', country: 'Malaisie', region: 'Long-Courrier' },
 };
 
 const el = {
@@ -78,6 +147,15 @@ const el = {
     crewTitle: $('#crew-modal-title'),
     crewBody: $('#crew-body'),
     crewClose: $('#crew-close'),
+    // Airports modal & shortcuts
+    airportsBtn: $('#airports-btn'),
+    quickAirportsBtn: $('#quick-airports-btn'),
+    modalAirports: $('#modal-airports'),
+    airportsClose: $('#airports-close'),
+    airportSearchInput: $('#airport-search-input'),
+    airportRegionFilters: $('#airport-region-filters'),
+    airportsListGrid: $('#airports-list-grid'),
+    airportsCountBadge: $('#airports-count-badge'),
     // Settings & Standalone
     settingsBtn: $('#settings-btn'),
     modalSettings: $('#modal-settings'),
@@ -1277,23 +1355,42 @@ if (el.quickExportIcs) el.quickExportIcs.addEventListener('click', handleExportI
 function openWeatherModal(icaoOrIata) {
     if (!el.modalWx) return;
     el.modalWx.classList.remove('hidden');
-    const apt = icaoOrIata.toUpperCase();
-    if (el.wxTitle) el.wxTitle.textContent = `Météo · ${apt}`;
+    const apt = (icaoOrIata || '').trim().toUpperCase();
+    
+    // Résolution code ICAO et métadonnées
+    let icao = apt;
+    let airportInfo = AIRPORTS[apt];
+    if (apt.length === 3) {
+        if (airportInfo && airportInfo.icao) {
+            icao = airportInfo.icao;
+        } else {
+            icao = `DA${apt.slice(0, 2)}`;
+        }
+    } else if (apt.length === 4) {
+        icao = apt;
+        const match = Object.entries(AIRPORTS).find(([_, info]) => info.icao === apt);
+        if (match) {
+            airportInfo = match[1];
+        }
+    }
+
+    const titleText = airportInfo ? `${airportInfo.city} (${apt})` : apt;
+    if (el.wxTitle) el.wxTitle.textContent = `Météo · ${titleText}`;
+    if (el.wxSub) el.wxSub.textContent = airportInfo ? `${airportInfo.name}` : `OACI : ${icao}`;
     if (el.wxBody) {
         el.wxBody.innerHTML = `
             <div class="flight-radar-loader" style="margin:20px auto;"><div class="radar-sweep"></div><div class="radar-plane">✈</div></div>
-            <p style="text-align:center; color:var(--text-muted); font-size:0.85rem;">Interrogation des stations météo NOAA / aviationweather.gov…</p>
+            <p style="text-align:center; color:var(--text-muted); font-size:0.85rem;">Interrogation des stations météo NOAA / aviationweather.gov pour ${icao}…</p>
         `;
     }
 
     // Récupération METAR
-    const icao = apt.length === 3 ? (apt === 'ALG' ? 'DAAG' : apt === 'CDG' ? 'LFPG' : apt === 'JED' ? 'OEJN' : apt === 'ORN' ? 'DAOO' : 'DAAG') : apt;
     fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`)
         .then(r => r.json())
         .then(data => {
             if (Array.isArray(data) && data.length > 0) {
                 const m = data[0];
-                const raw = m.rawOb || 'METAR disponible';
+                const raw = m.rawOb || m.raw || 'METAR disponible';
                 const temp = m.temp !== undefined ? `${m.temp}°C` : '—';
                 const wspeed = m.wspd !== undefined ? `${m.wspd} kts` : '—';
                 const wdir = m.wdir !== undefined ? `${m.wdir}°` : '—';
@@ -1303,7 +1400,7 @@ function openWeatherModal(icaoOrIata) {
                     el.wxBody.innerHTML = `
                         <div style="background:var(--bg-surface-glass); border:1px solid var(--border-glass); border-radius:12px; padding:14px; margin-bottom:14px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                                <strong style="font-size:1.1rem;">${icao}</strong>
+                                <strong style="font-size:1.1rem;">${icao} ${airportInfo ? '· ' + esc(airportInfo.city) : ''}</strong>
                                 <span class="badge ${fltCat === 'VFR' ? 'badge-vfr' : 'badge-accent'}">${fltCat}</span>
                             </div>
                             <div style="font-family:var(--font-mono); font-size:0.85rem; color:var(--text-main); word-break:break-all; line-height:1.5;">${esc(raw)}</div>
@@ -1319,7 +1416,7 @@ function openWeatherModal(icaoOrIata) {
                             </div>
                             <div class="card-glass" style="padding:10px;">
                                 <small style="color:var(--text-muted); font-size:0.7rem;">Conditions</small>
-                                <strong style="display:block; font-size:1.1rem; color:var(--rest-green);">CAVOK</strong>
+                                <strong style="display:block; font-size:1.1rem; color:var(--rest-green);">${fltCat === 'VFR' ? 'CAVOK / VMC' : fltCat}</strong>
                             </div>
                         </div>
                     `;
@@ -1349,6 +1446,165 @@ if (el.wxClose) el.wxClose.addEventListener('click', closeWeatherModal);
 if (el.modalWx) el.modalWx.addEventListener('click', (e) => {
     if (e.target === el.modalWx) closeWeatherModal();
 });
+
+/* =========================== Répertoire Aéroports Air Algérie =========================== */
+
+let currentAirportRegion = 'all';
+let currentAirportSearch = '';
+
+function openAirportsModal() {
+    if (!el.modalAirports) return;
+    el.modalAirports.classList.remove('hidden');
+    if (el.airportSearchInput) {
+        el.airportSearchInput.value = '';
+        currentAirportSearch = '';
+    }
+    renderAirportsDirectory(currentAirportRegion, '');
+    setTimeout(() => {
+        if (el.airportSearchInput) el.airportSearchInput.focus();
+    }, 100);
+}
+
+function closeAirportsModal() {
+    if (el.modalAirports) el.modalAirports.classList.add('hidden');
+}
+
+function renderAirportsDirectory(selectedRegion = 'all', searchQuery = '') {
+    if (!el.airportsListGrid) return;
+    const query = (searchQuery || '').trim().toLowerCase();
+    
+    const entries = Object.entries(AIRPORTS).filter(([iata, info]) => {
+        // Filtre région
+        if (selectedRegion !== 'all') {
+            if (info.region !== selectedRegion) return false;
+        }
+        // Filtre texte
+        if (query) {
+            const matchIata = iata.toLowerCase().includes(query);
+            const matchIcao = (info.icao || '').toLowerCase().includes(query);
+            const matchCity = (info.city || '').toLowerCase().includes(query);
+            const matchName = (info.name || '').toLowerCase().includes(query);
+            const matchCountry = (info.country || '').toLowerCase().includes(query);
+            if (!matchIata && !matchIcao && !matchCity && !matchName && !matchCountry) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    if (el.airportsCountBadge) {
+        el.airportsCountBadge.textContent = `${entries.length} destination${entries.length > 1 ? 's' : ''}`;
+    }
+
+    if (entries.length === 0) {
+        el.airportsListGrid.innerHTML = `
+            <div style="grid-column: 1 / -1; padding: 36px 20px; text-align: center; color: var(--text-muted);">
+                <div style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
+                <div style="font-weight: 700; color: var(--text-main); font-size: 1rem;">Aucun aéroport trouvé</div>
+                <small style="color: var(--text-muted);">Vérifiez l'orthographe ou changez de catégorie géographique</small>
+            </div>
+        `;
+        return;
+    }
+
+    el.airportsListGrid.innerHTML = entries.map(([iata, info]) => {
+        const flag = info.country === 'Algérie' ? '🇩🇿' :
+                     info.country === 'France' ? '🇫🇷' :
+                     info.country === 'Royaume-Uni' ? '🇬🇧' :
+                     info.country === 'Espagne' ? '🇪🇸' :
+                     info.country === 'Italie' ? '🇮🇹' :
+                     info.country === 'Allemagne' ? '🇩🇪' :
+                     info.country === 'Belgique' ? '🇧🇪' :
+                     info.country === 'Suisse' ? '🇨🇭' :
+                     info.country === 'Autriche' ? '🇦🇹' :
+                     info.country === 'Portugal' ? '🇵🇹' :
+                     info.country === 'Russie' ? '🇷🇺' :
+                     info.country === 'Hongrie' ? '🇭🇺' :
+                     info.country === 'Turquie' ? '🇹🇷' :
+                     info.country === 'Arabie Saoudite' ? '🇸🇦' :
+                     info.country === 'Émirats Arabes Unis' ? '🇦🇪' :
+                     info.country === 'Qatar' ? '🇶🇦' :
+                     info.country === 'Jordanie' ? '🇯🇴' :
+                     info.country === 'Liban' ? '🇱🇧' :
+                     info.country === 'Tunisie' ? '🇹🇳' :
+                     info.country === 'Maroc' ? '🇲🇦' :
+                     info.country === 'Égypte' ? '🇪🇬' :
+                     info.country === 'Sénégal' ? '🇸🇳' :
+                     info.country === 'Mali' ? '🇲🇱' :
+                     info.country === 'Niger' ? '🇳🇪' :
+                     info.country === 'Mauritanie' ? '🇲🇷' :
+                     info.country === 'Burkina Faso' ? '🇧🇫' :
+                     info.country === 'Côte d\'Ivoire' ? '🇨🇮' :
+                     info.country === 'Cameroun' ? '🇨🇲' :
+                     info.country === 'Tchad' ? '🇹🇩' :
+                     info.country === 'Afrique du Sud' ? '🇿🇦' :
+                     info.country === 'Éthiopie' ? '🇪🇹' :
+                     info.country === 'Canada' ? '🇨🇦' :
+                     info.country === 'Chine' ? '🇨🇳' :
+                     info.country === 'Malaisie' ? '🇲🇾' : '✈️';
+
+        return `
+            <div class="airport-item-card" data-iata="${iata}" data-icao="${info.icao}">
+                <div class="airport-item-top">
+                    <div class="airport-codes">
+                        <span class="airport-iata">${iata}</span>
+                        <span class="airport-icao">${info.icao}</span>
+                    </div>
+                    <span class="airport-region-pill">${info.region}</span>
+                </div>
+                <div class="airport-item-city">
+                    <span>${flag}</span>
+                    <span>${esc(info.city)}</span>
+                </div>
+                <div class="airport-item-name" title="${esc(info.name)}">
+                    ${esc(info.name)}
+                </div>
+                <div class="airport-item-footer">
+                    <span>${esc(info.country)}</span>
+                    <button type="button" class="airport-wx-btn" data-icao="${info.icao}" title="Consulter la météo NOAA">
+                        <span>🌤</span> METAR Live
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Clic sur une carte pour ouvrir la météo
+    el.airportsListGrid.querySelectorAll('.airport-item-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+            const icao = card.dataset.icao || card.dataset.iata;
+            if (icao) {
+                closeAirportsModal();
+                openWeatherModal(icao);
+            }
+        });
+    });
+}
+
+if (el.airportsBtn) el.airportsBtn.addEventListener('click', openAirportsModal);
+if (el.quickAirportsBtn) el.quickAirportsBtn.addEventListener('click', openAirportsModal);
+if (el.airportsClose) el.airportsClose.addEventListener('click', closeAirportsModal);
+if (el.modalAirports) el.modalAirports.addEventListener('click', (e) => {
+    if (e.target === el.modalAirports) closeAirportsModal();
+});
+
+if (el.airportSearchInput) {
+    el.airportSearchInput.addEventListener('input', (e) => {
+        currentAirportSearch = e.target.value;
+        renderAirportsDirectory(currentAirportRegion, currentAirportSearch);
+    });
+}
+
+if (el.airportRegionFilters) {
+    el.airportRegionFilters.querySelectorAll('.chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            el.airportRegionFilters.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            currentAirportRegion = chip.dataset.region || 'all';
+            renderAirportsDirectory(currentAirportRegion, currentAirportSearch);
+        });
+    });
+}
 
 function openCrewModal(flightNumber) {
     if (!el.modalCrew) return;
@@ -1408,3 +1664,4 @@ initTabs();
 setMonth(new Date());
 loadRoster();
 loadProfile();
+

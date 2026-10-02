@@ -1665,3 +1665,159 @@ body {
     width: 28px;
     height: 28px;
 }
+
+/* ==================== AÉROPORTS AIR ALGÉRIE DIRECTORY ==================== */
+
+.modal-card-large {
+    max-width: 680px;
+    width: 95%;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-card-large .modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px 20px;
+}
+
+.airport-search-box {
+    position: relative;
+    margin-bottom: 4px;
+}
+
+.airport-search-box input {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 0.92rem;
+}
+
+.airports-directory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+    overflow-y: auto;
+    padding-right: 4px;
+    max-height: 52vh;
+}
+
+.airports-directory-grid::-webkit-scrollbar {
+    width: 6px;
+}
+
+.airports-directory-grid::-webkit-scrollbar-thumb {
+    background: var(--border-glass-light);
+    border-radius: 3px;
+}
+
+.airport-item-card {
+    background: var(--bg-surface-glass);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.airport-item-card:hover {
+    background: var(--bg-surface-glass-hover);
+    border-color: rgba(227, 6, 19, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.airport-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.airport-codes {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.airport-iata {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: var(--airalgerie-red);
+    background: rgba(227, 6, 19, 0.12);
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.05em;
+}
+
+.airport-icao {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.airport-region-pill {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-surface-glass);
+    border: 1px solid var(--border-glass);
+    color: var(--text-muted);
+}
+
+.airport-item-city {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.airport-item-name {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.airport-item-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-glass);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}
+
+.airport-wx-btn {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--flight-blue);
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 6px;
+    padding: 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.airport-wx-btn:hover {
+    background: rgba(59, 130, 246, 0.25);
+}
+

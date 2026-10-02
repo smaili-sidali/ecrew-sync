@@ -86,6 +86,17 @@ def test_api_enriched_endpoints():
     assert res_wx.status_code == 200
     assert "metar" in res_wx.json()
 
+    res_airports = client.get("/api/airports")
+    assert res_airports.status_code == 200
+    airports = res_airports.json().get("airports", {})
+    assert len(airports) >= 90
+    assert "ALG" in airports
+    assert "CDG" in airports
+    assert "JED" in airports
+    assert "YUL" in airports
+    assert "BSK" in airports
+    assert airports["ALG"]["icao"] == "DAAG"
+
 
 def test_cli_enriched_commands(tmp_path, monkeypatch):
     from typer.testing import CliRunner

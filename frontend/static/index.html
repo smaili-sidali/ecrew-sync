@@ -48,6 +48,10 @@
                     <span id="sync-btn-label">Synchroniser</span>
                 </button>
 
+                <button id="airports-btn" class="header-icon-btn" title="Réseau des Aéroports Air Algérie (90+)" aria-label="Aéroports Air Algérie">
+                    <span style="font-size:1.15rem; line-height:1;">🌍</span>
+                </button>
+
                 <button id="dark-toggle" class="header-icon-btn" title="Thème Nuit/Jour" aria-label="Changer le thème">
                     <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                         <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
@@ -298,6 +302,13 @@
             <div class="profile-section card-glass">
                 <h3 style="margin-bottom:12px;">⚡ Outils Rapides</h3>
                 <div class="quick-tools-grid">
+                    <button id="quick-airports-btn" class="tool-btn">
+                        <span class="tool-icon">🌍</span>
+                        <div class="tool-text">
+                            <strong>Réseau Aéroports (90+)</strong>
+                            <small>Toutes les escales Air Algérie &amp; Météo</small>
+                        </div>
+                    </button>
                     <button id="quick-export-ics" class="tool-btn">
                         <span class="tool-icon">📅</span>
                         <div class="tool-text">
@@ -446,7 +457,37 @@
     </div>
 </div>
 
+<!-- ==================== MODAL: RÉPERTOIRE RÉSEAU AÉROPORTS AIR ALGÉRIE ==================== -->
+<div id="modal-airports" class="modal-backdrop hidden">
+    <div class="modal-card modal-card-large">
+        <div class="modal-header">
+            <div>
+                <h3>Réseau des Aéroports Air Algérie</h3>
+                <span class="badge badge-accent" id="airports-count-badge">94 Destinations</span>
+            </div>
+            <button class="modal-close-btn" id="airports-close" aria-label="Fermer">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="airport-search-box">
+                <input type="text" id="airport-search-input" placeholder="🔍 Rechercher par code (ALG, CDG...), ville ou pays..." class="input-glass">
+            </div>
+            <div class="filter-chips" id="airport-region-filters" style="margin: 12px 0 16px;">
+                <button class="chip active" data-region="all">Tous (94)</button>
+                <button class="chip" data-region="Algérie">🇩🇿 Domestique (36)</button>
+                <button class="chip" data-region="Europe">🇪🇺 Europe (32)</button>
+                <button class="chip" data-region="Moyen-Orient">🇸🇦 Moyen-Orient (7)</button>
+                <button class="chip" data-region="Afrique">🌍 Afrique (14)</button>
+                <button class="chip" data-region="Long-Courrier">🌎 Long-Courrier (5)</button>
+            </div>
+            <div id="airports-list-grid" class="airports-directory-grid">
+                <!-- Rempli dynamiquement par app.js -->
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="ecrew-core.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
+

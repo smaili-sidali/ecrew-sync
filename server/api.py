@@ -278,6 +278,12 @@ async def get_weather(code: str) -> dict:
     return weather_mod.fetch_weather(code)
 
 
+@app.get("/api/airports")
+async def get_airports() -> dict:
+    """Return all airports in Air Algérie's network."""
+    return {"airports": weather_mod.AIRPORT_MAP}
+
+
 # -------------------------------------------------------------------- Static
 
 
