@@ -72,19 +72,64 @@
     }
 
     // --- Requêtes HTTP Natives (Capacitor Http / Fetch) ---
-    async function request(options) {
-        if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
-            const res = await window.Capacitor.Plugins.CapacitorHttp.request(options);
-            return {
-                status: res.status,
-                data: res.data,
-                text: typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
-            };
+    function getCapacitorHttp() {
+        if (typeof window === 'undefined') return null;
+        if (window.CapacitorHttp && typeof window.CapacitorHttp.request === 'function') {
+            return window.CapacitorHttp;
         }
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp && typeof window.Capacitor.Plugins.CapacitorHttp.request === 'function') {
+            return window.Capacitor.Plugins.CapacitorHttp;
+        }
+        return null;
+    }
+
+    async function request(options) {
+        const capHttp = getCapacitorHttp();
+        if (capHttp) {
+            try {
+                const reqOpts = {
+                    url: options.url,
+                    method: options.method || 'GET',
+                    headers: options.headers || {},
+                    responseType: options.responseType || 'text',
+                    connectTimeout: 20000,
+                    readTimeout: 40000
+                };
+                if (options.data !== undefined) {
+                    reqOpts.data = options.data;
+                }
+                const res = await capHttp.request(reqOpts);
+                const rawText = typeof res.data === 'string' ? res.data : (res.data != null ? JSON.stringify(res.data) : '');
+                let parsedData = res.data;
+                if (typeof parsedData === 'string' && (res.headers?.['content-type'] || '').includes('application/json')) {
+                    try { parsedData = JSON.parse(parsedData); } catch (_) {}
+                }
+                return {
+                    status: res.status,
+                    data: parsedData,
+                    text: rawText,
+                    headers: res.headers || {}
+                };
+            } catch (err) {
+                console.error("CapacitorHttp request error:", err);
+                throw new Error("Erreur de connexion eCrew : " + (err.message || String(err)));
+            }
+        }
+
+        const fetchHeaders = { ...(options.headers || {}) };
+        let fetchBody = undefined;
+        if (options.data !== undefined) {
+            if (typeof options.data === 'string') {
+                fetchBody = options.data;
+            } else if (typeof options.data === 'object') {
+                fetchBody = JSON.stringify(options.data);
+            }
+        }
+
         const resp = await fetch(options.url, {
             method: options.method || 'GET',
-            headers: options.headers || {},
-            body: options.data ? (typeof options.data === 'string' ? options.data : JSON.stringify(options.data)) : undefined
+            headers: fetchHeaders,
+            body: fetchBody
         });
         const text = await resp.text();
         let data = text;
@@ -92,7 +137,8 @@
         return {
             status: resp.status,
             data: data,
-            text: text
+            text: text,
+            headers: {}
         };
     }
 
@@ -385,10 +431,19 @@
 
         // Flux complet de synchronisation directe avec eCrew
         async syncDirect(username, password, baseUrl = DEFAULT_BASE_URL) {
+            const cleanBase = baseUrl.replace(/\/+$/, '');
             // 1. Obtenir la page de connexion
-            const pageRes = await request({ url: baseUrl, method: 'GET' });
-            if (pageRes.status !== 200) {
-                throw new Error("Impossible de joindre le portail eCrew (HTTP " + pageRes.status + ")");
+            const pageRes = await request({
+                url: cleanBase,
+                method: 'GET',
+                headers: {
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                },
+                responseType: 'text'
+            });
+
+            if (pageRes.status !== 200 || !pageRes.text) {
+                throw new Error("Impossible de joindre le portail eCrew (HTTP " + pageRes.status + "). Vérifiez votre connexion internet.");
             }
             const html = pageRes.text;
             const token = extractVerificationToken(html);
@@ -398,7 +453,7 @@
             const passHash = await sha512(password);
 
             // 2. Connexion POST
-            const loginUrl = `${baseUrl.replace(/\/+$/, '')}/Login/${loginToken}`;
+            const loginUrl = `${cleanBase}/Login/${loginToken}`;
             const loginPayload = {
                 crewid: String(username).trim(),
                 password: passHash,
@@ -418,16 +473,39 @@
                     "eCrewHeader": sessionId,
                     "RequestVerificationToken": token,
                     "Origin": ORIGIN,
-                    "Referer": baseUrl
+                    "Referer": cleanBase,
+                    "Accept": "*/*",
+                    "X-Requested-With": "XMLHttpRequest"
                 },
-                data: loginPayload
+                data: loginPayload,
+                responseType: 'text'
             });
 
-            if (postRes.status !== 200 || postRes.text.includes("Invalid Credentials")) {
-                throw new Error("Identifiants incorrects sur le portail eCrew.");
+            if (postRes.status !== 200) {
+                throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
+            }
+            if (postRes.text.includes("Invalid Credentials") || postRes.text.includes("Identifiants")) {
+                throw new Error("Matricule ou mot de passe eCrew incorrect.");
+            }
+            if (postRes.text.includes("Another active session")) {
+                throw new Error("Une autre session eCrew est déjà ouverte sur votre compte. Déconnectez-vous et réessayez.");
             }
 
-            // 3. Récupérer le Dashboard & HomeIndex
+            // 3. Charger le shell Dashboard
+            const dashUrl = `${APP_BASE}/Dashboard`;
+            try {
+                await request({
+                    url: dashUrl,
+                    method: 'GET',
+                    headers: {
+                        "eCrewHeader": sessionId,
+                        "Referer": cleanBase
+                    },
+                    responseType: 'text'
+                });
+            } catch (_) {}
+
+            // 4. Récupérer HomeIndex (Planning DayPilot)
             const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${sessionId}`;
             const homeRes = await request({
                 url: homeUrl,
@@ -435,15 +513,45 @@
                 headers: {
                     "eCrewHeader": sessionId,
                     "Referer": `${APP_BASE}/Dashboard`
-                }
+                },
+                responseType: 'text'
             });
 
-            if (homeRes.status !== 200) {
-                throw new Error("Erreur lors de la récupération du planning (HTTP " + homeRes.status + ")");
+            if (homeRes.status !== 200 || !homeRes.text) {
+                throw new Error("Impossible de charger le planning eCrew (HTTP " + homeRes.status + ").");
             }
 
-            // 4. Parser le HTML pour extraire les devoirs
-            const entries = parseRosterHtml(homeRes.text);
+            let rosterHtml = homeRes.text;
+
+            // Fallback Menu A1 si HomeIndex ne contient pas de planning directement
+            if (!rosterHtml.includes("events")) {
+                try {
+                    const menuRes = await request({
+                        url: `${APP_BASE}/Dashboard/GetMenu`,
+                        method: 'POST',
+                        headers: {
+                            "Content-Type": "application/json",
+                            "eCrewHeader": sessionId,
+                            "RequestVerificationToken": token,
+                            "Origin": ORIGIN,
+                            "Referer": `${APP_BASE}/Dashboard`,
+                            "X-Requested-With": "XMLHttpRequest"
+                        },
+                        data: { Menu: "A1" },
+                        responseType: 'text'
+                    });
+                    if (menuRes.status === 200 && menuRes.text) {
+                        rosterHtml = menuRes.text;
+                    }
+                } catch (_) {}
+            }
+
+            // 5. Parser le planning
+            const entries = parseRosterHtml(rosterHtml);
+            if (!entries || entries.length === 0) {
+                throw new Error("Le planning a été récupéré mais aucun vol ou repos n'a été détecté pour cette période.");
+            }
+
             return {
                 entries: entries,
                 synced_at: new Date().toISOString()

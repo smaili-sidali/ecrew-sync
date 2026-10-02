@@ -126,14 +126,50 @@ el.darkToggle.addEventListener('click', () => {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
 });
 
-/* ============================== API helpers ============================ */
+/* ============================== Platform & API helpers ============================ */
+
+function isNativeApp() {
+    if (typeof window === 'undefined') return false;
+    if (window.Capacitor) {
+        if (typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
+            return true;
+        }
+        if (typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() !== 'web') {
+            return true;
+        }
+    }
+    if (window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:') {
+        return true;
+    }
+    return false;
+}
+
+async function checkPythonServer() {
+    if (isNativeApp()) return false;
+    try {
+        const res = await fetch('/api/health');
+        if (!res.ok) return false;
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return false;
+        const data = await res.json();
+        return Boolean(data && data.status === 'ok');
+    } catch (_) {
+        return false;
+    }
+}
 
 async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
+    const contentType = res.headers.get('content-type') || '';
     if (!res.ok) {
         let detail = '';
-        try { detail = (await res.json()).detail || ''; } catch (_) { /* ignore */ }
+        if (contentType.includes('application/json')) {
+            try { detail = (await res.json()).detail || ''; } catch (_) { /* ignore */ }
+        }
         throw new Error(detail || 'HTTP ' + res.status);
+    }
+    if (!contentType.includes('application/json')) {
+        throw new Error('Réponse non-JSON reçue du serveur.');
     }
     return res.json();
 }
@@ -301,17 +337,21 @@ async function loadRoster() {
         let data = null;
         const curPrefix = monthKey(currentMonth);
 
-        // 1. Tenter l'API du serveur si accessible
-        try {
-            data = await fetchJSON(API + '/roster?month=' + curPrefix);
-            // Sauvegarder dans le cache local
-            const existingCache = JSON.parse(localStorage.getItem('ecrew_roster_data') || '{"entries":[]}');
-            const otherEntries = (existingCache.entries || []).filter(e => !(e.date || '').startsWith(curPrefix));
-            existingCache.entries = [...otherEntries, ...(data.entries || [])];
-            existingCache.synced_at = data.synced_at || new Date().toISOString();
-            localStorage.setItem('ecrew_roster_data', JSON.stringify(existingCache));
-        } catch (_) {
-            // 2. Mode hors-ligne / Autonome : lire le localStorage
+        // 1. Tenter l'API du serveur si accessible (hors mode natif autonome)
+        if (!isNativeApp()) {
+            try {
+                data = await fetchJSON(API + '/roster?month=' + curPrefix);
+                // Sauvegarder dans le cache local
+                const existingCache = JSON.parse(localStorage.getItem('ecrew_roster_data') || '{"entries":[]}');
+                const otherEntries = (existingCache.entries || []).filter(e => !(e.date || '').startsWith(curPrefix));
+                existingCache.entries = [...otherEntries, ...(data.entries || [])];
+                existingCache.synced_at = data.synced_at || new Date().toISOString();
+                localStorage.setItem('ecrew_roster_data', JSON.stringify(existingCache));
+            } catch (_) {}
+        }
+
+        // 2. Mode hors-ligne / Autonome : lire le localStorage si data n'est pas encore chargé
+        if (!data) {
             const cached = localStorage.getItem('ecrew_roster_data');
             if (cached) {
                 const fullData = JSON.parse(cached);
@@ -1072,16 +1112,13 @@ el.syncBtn.addEventListener('click', async () => {
     el.syncBtn.disabled = true;
     el.syncBtnLabel.textContent = 'Synchronisation…';
     el.status.innerHTML = '<span class="dot"></span> en cours';
+    hideError();
 
-    // 1. Tester si le serveur Python tourne
-    let serverOk = false;
-    try {
-        const h = await fetch('/api/health');
-        if (h.ok) serverOk = true;
-    } catch (_) {}
+    // 1. Tester si le serveur Python tourne (seulement sur PC/Web)
+    const serverOk = await checkPythonServer();
 
     if (serverOk) {
-        // Mode Serveur connecté
+        // Mode Serveur connecté (PC)
         try {
             await fetchJSON(API + '/sync?force=true', { method: 'POST' });
             await sleep(1500);
@@ -1116,9 +1153,10 @@ el.syncBtn.addEventListener('click', async () => {
         const res = await window.EcrewCore.syncDirect(creds.username, creds.password);
         localStorage.setItem('ecrew_roster_data', JSON.stringify(res));
         await loadRoster();
-        el.status.innerHTML = '<span class="dot"></span> Prêt (Autonome)';
+        el.status.innerHTML = '<span class="dot"></span> Synchronisé';
+        showStatusNotification('Planning eCrew synchronisé avec succès.');
     } catch (err) {
-        showError('Synchronisation autonome échouée : ' + err.message);
+        showError('Échec synchronisation : ' + err.message);
         el.status.innerHTML = '<span class="dot" style="background:var(--accent);"></span> Erreur';
     } finally {
         el.syncBtn.disabled = false;
@@ -1127,16 +1165,16 @@ el.syncBtn.addEventListener('click', async () => {
 });
 
 el.exportBtn.addEventListener('click', async () => {
-    // Vérifier si le serveur fournit l'ICS
-    try {
-        const h = await fetch('/api/health');
-        if (h.ok) {
+    // 1. Sur serveur PC connecté
+    if (!isNativeApp()) {
+        const serverOk = await checkPythonServer();
+        if (serverOk) {
             window.location.href = API + '/export.ics';
             return;
         }
-    } catch (_) {}
+    }
 
-    // Export autonome direct depuis le cache local
+    // 2. Export autonome direct depuis le cache local
     const cached = localStorage.getItem('ecrew_roster_data');
     if (!cached || !window.EcrewCore) {
         showError("Aucun planning enregistré à exporter.");
@@ -1148,6 +1186,21 @@ el.exportBtn.addEventListener('click', async () => {
         return;
     }
     const icsContent = window.EcrewCore.generateICS(fullData.entries);
+
+    // Tentative de partage natif (ouvre Google Agenda / Calendrier sur Android)
+    try {
+        const file = new File([icsContent], `planning_ecrew_${monthKey(currentMonth)}.ics`, { type: 'text/calendar' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: 'Planning eCrew Air Algérie',
+                text: 'Importez votre planning dans votre calendrier'
+            });
+            return;
+        }
+    } catch (_) {}
+
+    // Téléchargement Blob standard
     const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
