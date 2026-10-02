@@ -472,157 +472,243 @@
         parseEventToEntry,
         generateICS,
 
-        // Flux complet de synchronisation directe avec eCrew
-        async syncDirect(username, password, baseUrl = DEFAULT_BASE_URL) {
-            const cleanBase = baseUrl.replace(/\/+$/, '');
-            // 1. Obtenir la page de connexion
-            const pageRes = await request({
-                url: cleanBase,
-                method: 'GET',
-                headers: {
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                },
-                responseType: 'text'
-            });
-
-            if (pageRes.status !== 200 || !pageRes.text) {
-                throw new Error("Impossible de joindre le portail eCrew (HTTP " + pageRes.status + "). Vérifiez votre connexion internet.");
-            }
-            const html = pageRes.text;
-            const token = extractVerificationToken(html);
-            const winObj = extractWinObj(html);
-            const loginToken = extractLoginToken(html);
-            const sessionId = makeSessionId();
-            const passHash = await sha512(password);
-
-            // 2. Connexion POST
-            const loginUrl = `${cleanBase}/Login/${loginToken}`;
-            const loginPayload = {
-                crewid: String(username).trim(),
-                password: passHash,
-                chk: "",
-                cio: "",
-                alias: "",
-                rad: "",
-                winObj: winObj,
-                hotp: ""
-            };
-
-            const postRes = await request({
-                url: loginUrl,
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                    "eCrewHeader": sessionId,
-                    "RequestVerificationToken": token,
-                    "Origin": ORIGIN,
-                    "Referer": cleanBase,
-                    "Accept": "*/*",
-                    "X-Requested-With": "XMLHttpRequest"
-                },
-                data: loginPayload,
-                responseType: 'text'
-            });
-
-            if (postRes.status !== 200) {
-                throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
-            }
-            if (postRes.text.includes("Invalid Credentials") || postRes.text.includes("Identifiants")) {
-                throw new Error("Matricule ou mot de passe eCrew incorrect.");
-            }
-            if (postRes.text.includes("Another active session")) {
-                throw new Error("Une autre session eCrew est déjà ouverte sur votre compte. Déconnectez-vous et réessayez.");
-            }
-
-            // 3. Charger le shell Dashboard
-            const dashUrl = `${APP_BASE}/Dashboard`;
-            let activeToken = token;
+        // Libération explicite du verrou serveur AIMS via LogoutP
+        async releaseSession(sessionId) {
+            if (!sessionId) return;
             try {
-                const dashRes = await request({
-                    url: dashUrl,
+                await request({
+                    url: `${APP_BASE}/Dashboard/LogoutP?eCrewHeader=${encodeURIComponent(sessionId)}&sl=xslx`,
                     method: 'GET',
                     headers: {
-                        "eCrewHeader": sessionId,
-                        "ecrewheader": sessionId,
-                        "Referer": cleanBase,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                    },
-                    responseType: 'text'
-                });
-                if (dashRes.text) {
-                    try {
-                        const freshToken = extractVerificationToken(dashRes.text);
-                        if (freshToken) activeToken = freshToken;
-                    } catch (_) {}
-                }
-            } catch (_) {}
-
-            // 4. Récupérer HomeIndex (Planning DayPilot)
-            const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${sessionId}`;
-            let rosterHtml = "";
-            let homeStatus = 0;
-            try {
-                const homeRes = await request({
-                    url: homeUrl,
-                    method: 'GET',
-                    headers: {
-                        "eCrewHeader": sessionId,
-                        "ecrewheader": sessionId,
                         "Referer": `${APP_BASE}/Dashboard`,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "RequestVerificationToken": activeToken
-                    },
-                    responseType: 'text'
-                });
-                homeStatus = homeRes.status;
-                if (homeRes.status === 200 && homeRes.text && homeRes.text.includes("events")) {
-                    rosterHtml = homeRes.text;
-                }
-                if (homeRes.text) {
-                    try {
-                        const freshToken = extractVerificationToken(homeRes.text);
-                        if (freshToken) activeToken = freshToken;
-                    } catch (_) {}
-                }
-            } catch (homeErr) {
-                console.warn("HomeIndex request failed, falling back to GetMenu A1:", homeErr);
-            }
-
-            // 5. Fallback Menu A1 ("My Schedule") si HomeIndex ne contient pas de planning ou renvoie HTTP 400
-            if (!rosterHtml) {
-                const menuRes = await request({
-                    url: `${APP_BASE}/Dashboard/GetMenu`,
-                    method: 'POST',
-                    headers: {
-                        "Content-Type": "application/json",
-                        "eCrewHeader": sessionId,
-                        "ecrewheader": sessionId,
-                        "RequestVerificationToken": activeToken,
-                        "Origin": ORIGIN,
-                        "Referer": `${APP_BASE}/Dashboard`,
-                        "X-Requested-With": "XMLHttpRequest",
                         "Accept": "*/*"
-                    },
-                    data: { Menu: "A1" },
-                    responseType: 'text'
+                    }
                 });
-                if (menuRes.status === 200 && menuRes.text) {
-                    rosterHtml = menuRes.text;
-                } else if (!rosterHtml && homeStatus !== 200) {
-                    throw new Error("Impossible de charger le planning eCrew (HomeIndex HTTP " + homeStatus + ", GetMenu HTTP " + menuRes.status + ").");
+            } catch (_) {}
+        },
+
+        // Flux complet de synchronisation directe avec eCrew
+        async syncDirect(username, password, baseUrl = DEFAULT_BASE_URL, onProgress = null) {
+            const cleanBase = baseUrl.replace(/\/+$/, '');
+            const report = (msg) => { if (typeof onProgress === 'function') onProgress(msg); };
+
+            function isSessionConflict(status, text) {
+                if (!text) return false;
+                const lower = text.toLowerCase();
+                return (
+                    lower.includes("another active session") ||
+                    lower.includes("session has now been terminated") ||
+                    (status === 400 && lower.includes("error_message"))
+                );
+            }
+
+            const self = this;
+            async function runAttempt(isRetry = false) {
+                let sessionId = null;
+                try {
+                    report(isRetry ? "Nouvelle tentative eCrew…" : "Connexion au portail eCrew…");
+
+                    // 1. Obtenir la page de connexion
+                    let pageRes = await request({
+                        url: cleanBase,
+                        method: 'GET',
+                        headers: {
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                        },
+                        responseType: 'text'
+                    });
+
+                    // Retenter une fois si le serveur retourne un code 5xx passager (Cloudflare 522/504)
+                    if (pageRes.status >= 500) {
+                        await new Promise(r => setTimeout(r, 2000));
+                        pageRes = await request({
+                            url: cleanBase,
+                            method: 'GET',
+                            headers: {
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                            },
+                            responseType: 'text'
+                        });
+                    }
+
+                    if (pageRes.status !== 200 || !pageRes.text) {
+                        throw new Error("Impossible de joindre le portail eCrew (HTTP " + pageRes.status + "). Vérifiez votre connexion internet.");
+                    }
+                    const html = pageRes.text;
+                    const token = extractVerificationToken(html);
+                    const winObj = extractWinObj(html);
+                    const loginToken = extractLoginToken(html);
+                    sessionId = makeSessionId();
+                    const passHash = await sha512(password);
+
+                    // 2. Connexion POST
+                    const loginUrl = `${cleanBase}/Login/${loginToken}`;
+                    const loginPayload = {
+                        crewid: String(username).trim(),
+                        password: passHash,
+                        chk: "",
+                        cio: "",
+                        alias: "",
+                        rad: "",
+                        winObj: winObj,
+                        hotp: ""
+                    };
+
+                    const postRes = await request({
+                        url: loginUrl,
+                        method: 'POST',
+                        headers: {
+                            "Content-Type": "application/json",
+                            "eCrewHeader": sessionId,
+                            "RequestVerificationToken": token,
+                            "Origin": ORIGIN,
+                            "Referer": cleanBase,
+                            "Accept": "*/*",
+                            "X-Requested-With": "XMLHttpRequest"
+                        },
+                        data: loginPayload,
+                        responseType: 'text'
+                    });
+
+                    if (postRes.status !== 200) {
+                        throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
+                    }
+                    if (postRes.text.includes("Invalid Credentials") || postRes.text.includes("Identifiants")) {
+                        throw new Error("Matricule ou mot de passe eCrew incorrect.");
+                    }
+                    if (isSessionConflict(postRes.status, postRes.text)) {
+                        await self.releaseSession(sessionId);
+                        if (!isRetry) {
+                            report("Session précédente détectée, libération…");
+                            await new Promise(r => setTimeout(r, 6000));
+                            return await runAttempt(true);
+                        }
+                        throw new Error("Une autre session eCrew est déjà ouverte sur votre compte. Veuillez vous déconnecter d'eCrew sur vos autres appareils et réappuyer sur Synchroniser.");
+                    }
+
+                    // 3. Charger le shell Dashboard
+                    report("Accès au tableau de bord…");
+                    const dashUrl = `${APP_BASE}/Dashboard`;
+                    let activeToken = token;
+                    try {
+                        const dashRes = await request({
+                            url: dashUrl,
+                            method: 'GET',
+                            headers: {
+                                "Referer": cleanBase,
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                            },
+                            responseType: 'text'
+                        });
+                        if (dashRes.text) {
+                            try {
+                                const freshToken = extractVerificationToken(dashRes.text);
+                                if (freshToken) activeToken = freshToken;
+                            } catch (_) {}
+                        }
+                    } catch (_) {}
+
+                    // 4. Récupérer HomeIndex (Planning DayPilot)
+                    report("Récupération du planning…");
+                    const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${encodeURIComponent(sessionId)}`;
+                    let rosterHtml = "";
+                    let homeStatus = 0;
+                    let conflictDetected = false;
+
+                    try {
+                        const homeRes = await request({
+                            url: homeUrl,
+                            method: 'GET',
+                            headers: {
+                                "Referer": `${APP_BASE}/Dashboard`,
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+                            },
+                            responseType: 'text'
+                        });
+                        homeStatus = homeRes.status;
+                        const homeText = homeRes.text || "";
+
+                        if (isSessionConflict(homeStatus, homeText)) {
+                            conflictDetected = true;
+                        } else if (homeStatus === 200 && homeText.includes("events")) {
+                            rosterHtml = homeText;
+                        }
+                        if (homeText) {
+                            try {
+                                const freshToken = extractVerificationToken(homeText);
+                                if (freshToken) activeToken = freshToken;
+                            } catch (_) {}
+                        }
+                    } catch (homeErr) {
+                        console.warn("HomeIndex request failed, falling back to GetMenu A1:", homeErr);
+                    }
+
+                    if (conflictDetected) {
+                        await self.releaseSession(sessionId);
+                        if (!isRetry) {
+                            report("Session eCrew occupée, réinitialisation automatique…");
+                            await new Promise(r => setTimeout(r, 6000));
+                            return await runAttempt(true);
+                        }
+                        throw new Error("Une autre session eCrew est active sur votre compte (dans votre navigateur ou sur un autre appareil). Déconnectez-vous d'eCrew sur votre ordinateur, attendez 10 secondes et réappuyez sur Synchroniser.");
+                    }
+
+                    // 5. Fallback Menu A1 ("My Schedule") si HomeIndex ne contient pas de planning
+                    if (!rosterHtml) {
+                        const menuRes = await request({
+                            url: `${APP_BASE}/Dashboard/GetMenu`,
+                            method: 'POST',
+                            headers: {
+                                "Content-Type": "application/json",
+                                "eCrewHeader": sessionId,
+                                "RequestVerificationToken": activeToken,
+                                "Origin": ORIGIN,
+                                "Referer": `${APP_BASE}/Dashboard`,
+                                "X-Requested-With": "XMLHttpRequest",
+                                "Accept": "*/*"
+                            },
+                            data: { Menu: "A1" },
+                            responseType: 'text'
+                        });
+
+                        const menuText = menuRes.text || "";
+                        if (isSessionConflict(menuRes.status, menuText)) {
+                            await self.releaseSession(sessionId);
+                            if (!isRetry) {
+                                report("Session occupée, libération automatique…");
+                                await new Promise(r => setTimeout(r, 6000));
+                                return await runAttempt(true);
+                            }
+                            throw new Error("Une autre session eCrew est restée active sur votre compte. Veuillez vous déconnecter d'eCrew et réappuyer sur Synchroniser.");
+                        }
+
+                        if (menuRes.status === 200 && menuText) {
+                            rosterHtml = menuText;
+                        } else if (!rosterHtml) {
+                            throw new Error("Impossible de charger le planning eCrew (HomeIndex HTTP " + homeStatus + ", GetMenu HTTP " + menuRes.status + ").");
+                        }
+                    }
+
+                    // 6. Parser le planning
+                    report("Traitement des vols et repos…");
+                    const entries = parseRosterHtml(rosterHtml);
+                    if (!entries || entries.length === 0) {
+                        throw new Error("Le planning a été récupéré mais aucun vol ou repos n'a été détecté pour cette période.");
+                    }
+
+                    return {
+                        entries: entries,
+                        synced_at: new Date().toISOString()
+                    };
+                } finally {
+                    // Toujours libérer la session AIMS proprement pour les futures synchronisations
+                    if (sessionId) {
+                        await self.releaseSession(sessionId);
+                    }
                 }
             }
 
-            // 5. Parser le planning
-            const entries = parseRosterHtml(rosterHtml);
-            if (!entries || entries.length === 0) {
-                throw new Error("Le planning a été récupéré mais aucun vol ou repos n'a été détecté pour cette période.");
-            }
-
-            return {
-                entries: entries,
-                synced_at: new Date().toISOString()
-            };
+            return await runAttempt(false);
         }
     };
 }));

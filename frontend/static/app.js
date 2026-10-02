@@ -1150,7 +1150,14 @@ el.syncBtn.addEventListener('click', async () => {
             throw new Error("Moteur eCrewCore non initialisé.");
         }
         el.syncBtnLabel.textContent = 'Connexion eCrew…';
-        const res = await window.EcrewCore.syncDirect(creds.username, creds.password);
+        const res = await window.EcrewCore.syncDirect(
+            creds.username,
+            creds.password,
+            undefined,
+            (msg) => {
+                if (el.syncBtnLabel) el.syncBtnLabel.textContent = msg;
+            }
+        );
         localStorage.setItem('ecrew_roster_data', JSON.stringify(res));
         await loadRoster();
         el.status.innerHTML = '<span class="dot"></span> Synchronisé';

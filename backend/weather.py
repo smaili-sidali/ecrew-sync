@@ -207,7 +207,7 @@ def fetch_weather(code: str) -> dict[str, Any]:
             if isinstance(parsed, list) and len(parsed) > 0:
                 taf_data = [item.get("rawTAF", "") for item in parsed if item.get("rawTAF")]
     except Exception as e:
-        logger.warning("Could not fetch TAF for %s: %e", icao, e)
+        logger.warning("Could not fetch TAF for %s: %s", icao, e)
 
     if not taf_data:
         try:

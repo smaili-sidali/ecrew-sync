@@ -264,6 +264,11 @@ def login(
         "Upgrade-Insecure-Requests": "1",
     }
     login_page = session.get(base_url, headers=login_headers, timeout=TIMEOUT)
+    if login_page.status_code in (502, 503, 504, 522):
+        import time
+
+        time.sleep(2)
+        login_page = session.get(base_url, headers=login_headers, timeout=TIMEOUT)
 
     if login_page.status_code != 200:
         raise AuthError(f"Login page returned HTTP {login_page.status_code}")

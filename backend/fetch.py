@@ -203,6 +203,11 @@ def fetch_with_relogin(
             if attempt >= attempts:
                 break
             logger.warning("eCrew session invalid (%s; attempt %d); re-logging in", type(e).__name__, attempt)
+            if isinstance(e, ConcurrentSessionError):
+                _auth.logout(session, base_url=base_url, cookie_file=cookie_file)
+                import time
+
+                time.sleep(5)
             session.cookies.clear()
             _auth.login(
                 session,
