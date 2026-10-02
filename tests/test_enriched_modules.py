@@ -87,10 +87,37 @@ def test_api_enriched_endpoints():
     assert "metar" in res_wx.json()
 
 
-def test_cli_enriched_commands():
+def test_cli_enriched_commands(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
+    from backend import store
+    from backend.parser import DutyEntry
     from cli.main import app as cli_app
+
+    db = tmp_path / "roster.json"
+    monkeypatch.setenv("ECREW_DB_FILE", str(db))
+
+    sample_entries = [
+        DutyEntry(
+            date="2026-10-04",
+            duty_type="flight",
+            flight_number="AH6001",
+            departure_airport="ALG",
+            arrival_airport="ORN",
+            departure_time="2026-10-04T08:00:00",
+            arrival_time="2026-10-04T09:00:00",
+        ),
+        DutyEntry(
+            date="2026-10-05",
+            duty_type="hotel",
+            layover_hotel="Movenpick Jeddah",
+            departure_airport="JED",
+            report_time="2026-10-05T00:00:00",
+            arrival_time="2026-10-06T12:00:00",
+        ),
+        DutyEntry(date="2026-10-07", duty_type="off"),
+    ]
+    store.save(sample_entries, db)
 
     runner = CliRunner()
     assert runner.invoke(cli_app, ["stats"]).exit_code == 0
@@ -99,7 +126,6 @@ def test_cli_enriched_commands():
     assert runner.invoke(cli_app, ["licenses"]).exit_code == 0
     assert runner.invoke(cli_app, ["leave"]).exit_code == 0
     assert runner.invoke(cli_app, ["crew", "AH462"]).exit_code == 0
-    # weather command with mock or network
     res_wx = runner.invoke(cli_app, ["weather", "ALG"])
     assert res_wx.exit_code == 0
 
