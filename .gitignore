@@ -22,6 +22,8 @@ roster.json
 session_state.json
 *.ics
 *.tmp
+*.apk
+dist-apk/
 
 # Debug artifacts (raw HTML from failed parses)
 debug_*.html
