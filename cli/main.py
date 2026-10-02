@@ -6,12 +6,13 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 # Ensure UTF-8 output on Windows consoles to prevent cp1252 charmap crashes
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")  # noqa: B009
+        getattr(sys.stderr, "reconfigure")(encoding="utf-8", errors="replace")  # noqa: B009
     except Exception:
         pass
 
@@ -68,7 +69,7 @@ except ImportError:  # pragma: no cover - running without the server package
     logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
 
 
-def _fail(message: str, code: int = 2) -> None:
+def _fail(message: str, code: int = 2) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(code=code)
 
@@ -125,11 +126,11 @@ def login_test() -> None:
         typer.secho("  RESULT: contract intact.", fg=typer.colors.GREEN)
         try:
             entries = parser.parse_roster(html)
-        except parser.ParseError as e:  # pragma: no cover - canary passed, so rare
-            typer.echo(f"  (parser disagreed with the canary: {e})", err=True)
+        except parser.ParseError as parse_err:  # pragma: no cover - canary passed, so rare
+            typer.echo(f"  (parser disagreed with the canary: {parse_err})", err=True)
             return
-        for e in entries[:15]:
-            typer.echo(f"    {e.date}  {e.duty_type:<9} {e.flight_number or ''}")
+        for entry in entries[:15]:
+            typer.echo(f"    {entry.date}  {entry.duty_type:<9} {entry.flight_number or ''}")
         if len(entries) > 15:
             typer.echo(f"    ... and {len(entries) - 15} more")
         typer.secho(

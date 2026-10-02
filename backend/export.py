@@ -187,7 +187,7 @@ def _description(entry: DutyEntry) -> str:
         parts.append(" \u00b7 ".join(legs))
     if entry.layover_hotel:
         parts.append(f"Hotel: {entry.layover_hotel}")
-    return "\n".join(parts) or None
+    return "\n".join(parts)
 
 
 def _stable_uid(entry: DutyEntry) -> str:

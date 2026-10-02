@@ -20,6 +20,7 @@ import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -29,7 +30,7 @@ from . import config
 try:
     from urllib3.util.retry import Retry
 except ImportError:  # pragma: no cover
-    Retry = None
+    Retry = None  # type: ignore[assignment,misc]
 
 
 # Kept as module constants for backwards compatibility; prefer config.base_url().
@@ -201,7 +202,7 @@ def get_session(cookie_file: Path | None = None) -> requests.Session:
         state = _load_state(cookie_file)
         if state.get("session_id"):
             session.headers["eCrewHeader"] = state["session_id"]
-            session.ecrew_session_id = state["session_id"]
+            session.ecrew_session_id = state["session_id"]  # type: ignore[attr-defined]
         if state.get("cookies"):
             session.cookies.update(state["cookies"])
     return session
@@ -324,7 +325,7 @@ def login(
         )
 
     session.headers["eCrewHeader"] = session_id
-    session.ecrew_session_id = session_id
+    session.ecrew_session_id = session_id  # type: ignore[attr-defined]
     if cookie_file is not None:
         _save_state(cookie_file, session_id=session_id, cookies=session.cookies.get_dict())
     return session_id
@@ -343,7 +344,7 @@ def _save_state(cookie_file: Path, session_id: str, cookies: dict | None = None)
     """
     cookie_file.parent.mkdir(parents=True, exist_ok=True)
     tmp = cookie_file.with_name(cookie_file.name + ".tmp")
-    data = {"session_id": session_id}
+    data: dict[str, Any] = {"session_id": session_id}
     if cookies:
         data["cookies"] = cookies
     with tmp.open("w", encoding="utf-8") as f:
