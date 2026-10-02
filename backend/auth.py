@@ -12,11 +12,12 @@ Reverse-engineered from HAR capture (see NOTES.md):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import random
 import re
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,9 +150,6 @@ def _extract_login_token(html: str) -> str:
     raise PortalChangedError("Could not find /ecrew/Login/<token> in login page.")
 
 
-import random
-
-
 def _make_session_id() -> str:
     """Site JS UID() format: 4-4-4-4-12 hex characters."""
     pattern = "1000-1000-4000-8000-100000000000"
@@ -225,20 +223,13 @@ def logout(
     """Explicitly release the server-side AIMS session lock via LogoutP."""
     sid = get_session_id(session)
     base = (base_url or config.base_url()).rstrip("/")
-    if base.endswith("/ecrew"):
-        app_base = base[: -len("/ecrew")] + "/eCrew"
-    else:
-        app_base = base
+    app_base = base[: -len("/ecrew")] + "/eCrew" if base.endswith("/ecrew") else base
     if sid:
-        try:
+        with contextlib.suppress(Exception):
             session.get(f"{app_base}/Dashboard/LogoutP?eCrewHeader={sid}&sl=xslx", timeout=TIMEOUT)
-        except Exception:
-            pass
     if cookie_file is not None and cookie_file.exists():
-        try:
+        with contextlib.suppress(OSError):
             cookie_file.unlink()
-        except OSError:
-            pass
     session.headers.pop("eCrewHeader", None)
     session.headers.pop("ecrewheader", None)
     if hasattr(session, "ecrew_session_id"):

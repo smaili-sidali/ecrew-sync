@@ -18,14 +18,40 @@ if hasattr(sys.stdout, "reconfigure"):
 import typer
 
 try:  # pragma: no cover - import shim for `python cli/main.py`
-    from backend import auth, config, contract, fetch, parser, store
+    from backend import (
+        auth,
+        config,
+        contract,
+        crew_list,
+        fetch,
+        layovers,
+        leave,
+        parser,
+        perdiem,
+        stats,
+        store,
+        training,
+        weather,
+    )
     from backend import export as backend_mod
-    from backend import crew_list, layovers, leave, perdiem, stats, training, weather
 except ImportError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from backend import auth, config, contract, fetch, parser, store
+    from backend import (
+        auth,
+        config,
+        contract,
+        crew_list,
+        fetch,
+        layovers,
+        leave,
+        parser,
+        perdiem,
+        stats,
+        store,
+        training,
+        weather,
+    )
     from backend import export as backend_mod
-    from backend import crew_list, layovers, leave, perdiem, stats, training, weather
 
 
 app = typer.Typer(add_completion=False, name="ecrew-sync", no_args_is_help=True)
@@ -416,26 +442,26 @@ def weather_cmd(
     metar = wx.get("metar", {})
     taf_list = wx.get("taf", [])
 
-    typer.secho(f"\n⛅ MÉTÉO AÉRONAUTIQUE (NOAA Aviation Weather Center) :", fg=typer.colors.BRIGHT_CYAN, bold=True)
+    typer.secho("\n⛅ MÉTÉO AÉRONAUTIQUE (NOAA Aviation Weather Center) :", fg=typer.colors.BRIGHT_CYAN, bold=True)
     typer.secho(f"   Aéroport : {apt.get('name', airport)} ({wx.get('icao')}) - {apt.get('country')}", fg=typer.colors.BRIGHT_YELLOW)
-    
+
     cat = metar.get("flight_category", "VFR")
     cat_color = typer.colors.GREEN if cat == "VFR" else (typer.colors.BLUE if cat == "MVFR" else typer.colors.RED)
-    typer.echo(f"   Catégorie de vol : ", nl=False)
+    typer.echo("   Catégorie de vol : ", nl=False)
     typer.secho(f"{cat}", fg=cat_color, bold=True)
 
-    typer.echo(f"\n   📄 METAR BRUT :")
+    typer.echo("\n   📄 METAR BRUT :")
     typer.echo(f"   {metar.get('raw')}")
 
     if "wind_speed_kt" in metar:
-        typer.echo(f"\n   DÉCODAGE :")
+        typer.echo("\n   DÉCODAGE :")
         typer.echo(f"   • Vent        : {metar.get('wind_dir_deg')}° / {metar.get('wind_speed_kt')} kt")
         typer.echo(f"   • Visi        : {metar.get('visibility_m')} m")
         typer.echo(f"   • Température : {metar.get('temp_c')}°C (Point de rosée: {metar.get('dew_c')}°C)")
         typer.echo(f"   • Altimètre   : QNH {metar.get('qnh_hpa')} hPa")
 
     if taf_list:
-        typer.echo(f"\n   📄 TAF (Prévisions d'aérodrome) :")
+        typer.echo("\n   📄 TAF (Prévisions d'aérodrome) :")
         for t in taf_list:
             typer.echo(f"   {t}")
     typer.echo("")

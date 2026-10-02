@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
-import urllib.parse
-from dataclasses import dataclass
 from typing import Any
+
 import requests
 
 logger = logging.getLogger(__name__)

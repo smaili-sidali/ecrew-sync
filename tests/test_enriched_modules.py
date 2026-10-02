@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
-from backend import crew_list, layovers, leave, perdiem, stats, training, weather
+from backend import crew_list, leave, training, weather
 from server.api import app
 
 client = TestClient(app)
@@ -90,6 +89,7 @@ def test_api_enriched_endpoints():
 
 def test_cli_enriched_commands():
     from typer.testing import CliRunner
+
     from cli.main import app as cli_app
 
     runner = CliRunner()

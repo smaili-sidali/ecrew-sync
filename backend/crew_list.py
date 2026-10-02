@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -103,7 +102,7 @@ def get_crew_for_flight(flight_number: str) -> list[dict[str, Any]]:
     # Direct match or fuzzy
     if clean_no in FLIGHT_CREW_REGISTRY:
         return FLIGHT_CREW_REGISTRY[clean_no]
-    
+
     # Generic fallback crew
     return [
         {"name": "CDB en cours d'assignation", "role": "Commandant de bord", "code": "CDB", "id": "—"},

@@ -1,0 +1,14 @@
+{
+  "appId": "com.ecrewsync.app",
+  "appName": "eCrew Sync",
+  "webDir": "frontend/static",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

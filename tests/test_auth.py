@@ -1,6 +1,7 @@
 """Unit tests for backend.auth extraction and session handling."""
 
 import pytest
+
 from backend import auth
 
 

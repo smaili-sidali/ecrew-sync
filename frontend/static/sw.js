@@ -4,10 +4,11 @@
  * activate, so a bump is all it takes to ship an update — without it users are
  * stuck on a stale app shell indefinitely.
  */
-const CACHE = 'ecrew-v4';
+const CACHE = 'ecrew-v5';
 
 const ASSETS = [
-  '/', '/index.html', '/style.css', '/app.js',
+  '/', '/index.html', '/style.css', '/app.js', '/ecrew-core.js',
+  'style.css', 'app.js', 'ecrew-core.js',
   '/icon.svg', '/manifest.json',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/icons/maskable-192.png', '/icons/maskable-512.png',

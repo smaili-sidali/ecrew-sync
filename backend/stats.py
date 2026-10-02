@@ -5,9 +5,10 @@ Calculates block hours, duty times, layover hours, sectors, and checks FTL compl
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 
@@ -44,10 +45,8 @@ def calculate_flight_stats(entries: list[Any], target_month: str | None = None) 
         raw_str = getattr(e, "raw", "") or "{}"
         raw_obj: dict[str, Any] = {}
         if isinstance(raw_str, str):
-            try:
+            with contextlib.suppress(Exception):
                 raw_obj = json.loads(raw_str)
-            except Exception:
-                pass
         elif isinstance(raw_str, dict):
             raw_obj = raw_str
 

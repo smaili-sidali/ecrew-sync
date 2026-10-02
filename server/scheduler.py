@@ -14,6 +14,7 @@ Status is exposed through ``get_sync_status()`` for ``/api/health``.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import threading
@@ -146,10 +147,8 @@ def _do_sync() -> None:
         _last_finish_ts = time.monotonic()
         STATUS["running"] = False
         _inflight.clear()
-        try:
+        with contextlib.suppress(RuntimeError):
             _lock.release()
-        except RuntimeError:
-            pass
 
 
 

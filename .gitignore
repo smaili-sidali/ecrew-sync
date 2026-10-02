@@ -61,3 +61,16 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node / JS
+node_modules/
+package-lock.json
+
+# Android Capacitor build artifacts
+android/.gradle/
+android/app/build/
+android/build/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/local.properties

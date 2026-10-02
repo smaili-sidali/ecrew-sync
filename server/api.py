@@ -17,8 +17,8 @@ from fastapi.staticfiles import StaticFiles
 # Import as a package (server.api) or by path (uvicorn server.api:app).
 try:  # pragma: no cover - import shim for direct script execution
     from backend import config, store
-    from backend import export as export_mod
     from backend import crew_list as crew_mod
+    from backend import export as export_mod
     from backend import layovers as layovers_mod
     from backend import leave as leave_mod
     from backend import perdiem as perdiem_mod
@@ -39,8 +39,8 @@ except ImportError:  # pragma: no cover
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from backend import config, store
-    from backend import export as export_mod
     from backend import crew_list as crew_mod
+    from backend import export as export_mod
     from backend import layovers as layovers_mod
     from backend import leave as leave_mod
     from backend import perdiem as perdiem_mod
@@ -235,7 +235,7 @@ async def get_layovers() -> dict:
     """Hotel & Layover Logistics (Addresses, contacts, pick-ups, map links)."""
     entries = store.load(config.db_file())
     layover_list = layovers_mod.extract_layovers(entries)
-    return {"count": len(layover_list), "layovers": [l.to_dict() for l in layover_list]}
+    return {"count": len(layover_list), "layovers": [item.to_dict() for item in layover_list]}
 
 
 @app.get("/api/stats", dependencies=[Depends(require_token)])

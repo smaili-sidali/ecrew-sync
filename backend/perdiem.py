@@ -6,10 +6,10 @@ based on actual rotation schedules, reporting times, debriefing times, and desti
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import datetime
 from typing import Any
-
 
 RATES: dict[str, dict[str, Any]] = {
     "JED": {"currency": "USD", "daily_rate": 120.0, "name": "Djeddah (Arabie Saoudite)", "dzd_equiv": 16500},
@@ -47,10 +47,8 @@ def calculate_per_diem(entries: list[Any], target_month: str | None = None) -> d
         raw_str = getattr(e, "raw", "") or "{}"
         raw_obj: dict[str, Any] = {}
         if isinstance(raw_str, str):
-            try:
+            with contextlib.suppress(Exception):
                 raw_obj = json.loads(raw_str)
-            except Exception:
-                pass
         elif isinstance(raw_str, dict):
             raw_obj = raw_str
 

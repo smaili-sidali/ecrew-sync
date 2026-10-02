@@ -4,11 +4,11 @@ and contacts directly from roster data.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from dataclasses import dataclass
 from typing import Any
-from datetime import datetime
 
 
 @dataclass
@@ -93,10 +93,8 @@ def extract_layovers(entries: list[Any]) -> list[Layover]:
         raw_str = getattr(e, "raw", None) or "{}"
         raw_obj: dict[str, Any] = {}
         if isinstance(raw_str, str):
-            try:
+            with contextlib.suppress(Exception):
                 raw_obj = json.loads(raw_str)
-            except Exception:
-                pass
         elif isinstance(raw_str, dict):
             raw_obj = raw_str
 
@@ -104,7 +102,6 @@ def extract_layovers(entries: list[Any]) -> list[Layover]:
         airport = airport.strip().upper()
 
         text = raw_obj.get("text", "")
-        details = raw_obj.get("details", "")
         hotel_info = raw_obj.get("HotelInfo", {}) or {}
 
         # 1. Hotel name extraction
@@ -127,10 +124,7 @@ def extract_layovers(entries: list[Any]) -> list[Layover]:
 
         # Duration
         m_dur = re.search(r'\((\d{1,3}:\d{2})\)', text)
-        if m_dur:
-            duration_str = m_dur.group(1)
-        else:
-            duration_str = hotel_info.get("Rest", "Escale")
+        duration_str = m_dur.group(1) if m_dur else hotel_info.get("Rest", "Escale")
 
         check_in = getattr(e, "report_time", None) or raw_obj.get("start", "")
         check_out = getattr(e, "arrival_time", None) or getattr(e, "layover_until", None) or raw_obj.get("end", "")
