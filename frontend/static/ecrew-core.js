@@ -71,6 +71,35 @@
         return res;
     }
 
+    const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+
+    // --- Gestionnaire de cookies in-memory (CookieJar) ---
+    const cookieJar = {};
+
+    function parseAndSaveCookies(headers) {
+        if (!headers) return;
+        for (const [key, val] of Object.entries(headers)) {
+            const k = key.toLowerCase();
+            if ((k === 'set-cookie' || k === 'set-cookie2') && val) {
+                const cookieStrings = Array.isArray(val) ? val : String(val).split(/,(?=\s*[A-Za-z0-9_\-]+=)/);
+                for (const str of cookieStrings) {
+                    const firstPart = str.split(';')[0].trim();
+                    const eqIdx = firstPart.indexOf('=');
+                    if (eqIdx > 0) {
+                        const name = firstPart.substring(0, eqIdx).trim();
+                        const value = firstPart.substring(eqIdx + 1).trim();
+                        cookieJar[name] = value;
+                    }
+                }
+            }
+        }
+    }
+
+    function getCookieHeader() {
+        const pairs = Object.entries(cookieJar).map(([k, v]) => `${k}=${v}`);
+        return pairs.length > 0 ? pairs.join('; ') : '';
+    }
+
     // --- Requêtes HTTP Natives (Capacitor Http / Fetch) ---
     function getCapacitorHttp() {
         if (typeof window === 'undefined') return null;
@@ -85,12 +114,21 @@
 
     async function request(options) {
         const capHttp = getCapacitorHttp();
+        const cookieHeader = getCookieHeader();
+        const headersToSend = { ...(options.headers || {}) };
+        if (!headersToSend['User-Agent'] && !headersToSend['user-agent']) {
+            headersToSend['User-Agent'] = USER_AGENT;
+        }
+        if (cookieHeader && !headersToSend['Cookie'] && !headersToSend['cookie']) {
+            headersToSend['Cookie'] = cookieHeader;
+        }
+
         if (capHttp) {
             try {
                 const reqOpts = {
                     url: options.url,
                     method: options.method || 'GET',
-                    headers: options.headers || {},
+                    headers: headersToSend,
                     responseType: options.responseType || 'text',
                     connectTimeout: 20000,
                     readTimeout: 40000
@@ -99,6 +137,7 @@
                     reqOpts.data = options.data;
                 }
                 const res = await capHttp.request(reqOpts);
+                parseAndSaveCookies(res.headers);
                 const rawText = typeof res.data === 'string' ? res.data : (res.data != null ? JSON.stringify(res.data) : '');
                 let parsedData = res.data;
                 if (typeof parsedData === 'string' && (res.headers?.['content-type'] || '').includes('application/json')) {
@@ -116,7 +155,6 @@
             }
         }
 
-        const fetchHeaders = { ...(options.headers || {}) };
         let fetchBody = undefined;
         if (options.data !== undefined) {
             if (typeof options.data === 'string') {
@@ -128,9 +166,14 @@
 
         const resp = await fetch(options.url, {
             method: options.method || 'GET',
-            headers: fetchHeaders,
+            headers: headersToSend,
             body: fetchBody
         });
+        const respHeaders = {};
+        if (resp.headers && resp.headers.forEach) {
+            resp.headers.forEach((v, k) => { respHeaders[k] = v; });
+        }
+        parseAndSaveCookies(respHeaders);
         const text = await resp.text();
         let data = text;
         try { data = JSON.parse(text); } catch (_) {}
@@ -138,7 +181,7 @@
             status: resp.status,
             data: data,
             text: text,
-            headers: {}
+            headers: respHeaders
         };
     }
 
@@ -493,57 +536,81 @@
 
             // 3. Charger le shell Dashboard
             const dashUrl = `${APP_BASE}/Dashboard`;
+            let activeToken = token;
             try {
-                await request({
+                const dashRes = await request({
                     url: dashUrl,
                     method: 'GET',
                     headers: {
                         "eCrewHeader": sessionId,
-                        "Referer": cleanBase
+                        "ecrewheader": sessionId,
+                        "Referer": cleanBase,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                     },
                     responseType: 'text'
                 });
+                if (dashRes.text) {
+                    try {
+                        const freshToken = extractVerificationToken(dashRes.text);
+                        if (freshToken) activeToken = freshToken;
+                    } catch (_) {}
+                }
             } catch (_) {}
 
             // 4. Récupérer HomeIndex (Planning DayPilot)
             const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${sessionId}`;
-            const homeRes = await request({
-                url: homeUrl,
-                method: 'GET',
-                headers: {
-                    "eCrewHeader": sessionId,
-                    "Referer": `${APP_BASE}/Dashboard`
-                },
-                responseType: 'text'
-            });
-
-            if (homeRes.status !== 200 || !homeRes.text) {
-                throw new Error("Impossible de charger le planning eCrew (HTTP " + homeRes.status + ").");
+            let rosterHtml = "";
+            let homeStatus = 0;
+            try {
+                const homeRes = await request({
+                    url: homeUrl,
+                    method: 'GET',
+                    headers: {
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "Referer": `${APP_BASE}/Dashboard`,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "RequestVerificationToken": activeToken
+                    },
+                    responseType: 'text'
+                });
+                homeStatus = homeRes.status;
+                if (homeRes.status === 200 && homeRes.text && homeRes.text.includes("events")) {
+                    rosterHtml = homeRes.text;
+                }
+                if (homeRes.text) {
+                    try {
+                        const freshToken = extractVerificationToken(homeRes.text);
+                        if (freshToken) activeToken = freshToken;
+                    } catch (_) {}
+                }
+            } catch (homeErr) {
+                console.warn("HomeIndex request failed, falling back to GetMenu A1:", homeErr);
             }
 
-            let rosterHtml = homeRes.text;
-
-            // Fallback Menu A1 si HomeIndex ne contient pas de planning directement
-            if (!rosterHtml.includes("events")) {
-                try {
-                    const menuRes = await request({
-                        url: `${APP_BASE}/Dashboard/GetMenu`,
-                        method: 'POST',
-                        headers: {
-                            "Content-Type": "application/json",
-                            "eCrewHeader": sessionId,
-                            "RequestVerificationToken": token,
-                            "Origin": ORIGIN,
-                            "Referer": `${APP_BASE}/Dashboard`,
-                            "X-Requested-With": "XMLHttpRequest"
-                        },
-                        data: { Menu: "A1" },
-                        responseType: 'text'
-                    });
-                    if (menuRes.status === 200 && menuRes.text) {
-                        rosterHtml = menuRes.text;
-                    }
-                } catch (_) {}
+            // 5. Fallback Menu A1 ("My Schedule") si HomeIndex ne contient pas de planning ou renvoie HTTP 400
+            if (!rosterHtml) {
+                const menuRes = await request({
+                    url: `${APP_BASE}/Dashboard/GetMenu`,
+                    method: 'POST',
+                    headers: {
+                        "Content-Type": "application/json",
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "RequestVerificationToken": activeToken,
+                        "Origin": ORIGIN,
+                        "Referer": `${APP_BASE}/Dashboard`,
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "*/*"
+                    },
+                    data: { Menu: "A1" },
+                    responseType: 'text'
+                });
+                if (menuRes.status === 200 && menuRes.text) {
+                    rosterHtml = menuRes.text;
+                } else if (!rosterHtml && homeStatus !== 200) {
+                    throw new Error("Impossible de charger le planning eCrew (HomeIndex HTTP " + homeStatus + ", GetMenu HTTP " + menuRes.status + ").");
+                }
             }
 
             // 5. Parser le planning
