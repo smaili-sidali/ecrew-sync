@@ -135,9 +135,19 @@ def is_error_payload(text: str) -> bool:
 
 def is_concurrent_session(status_code: int, text: str) -> bool:
     """True when a response body/status means "another session already active"."""
-    if not is_error_payload(text):
+    body = text or ""
+
+    # Page d'erreur "Another active session" servie par le portail en HTML : le
+    # message est injecte par le JS de la page dans un
+    # <div class='error_message'> encapsule dans <div class='error_content'>. Ces
+    # deux classes n'apparaissent dans aucune page eCrew qui reussit (verifie sur
+    # HomeIndex et la page de login), alors que la phrase seule y figure deja.
+    if "error_content" in body.lower() and "another active session is currently open" in body.lower():
+        return True
+
+    if not is_error_payload(body):
         return False
-    lower = (text or "").lower()
+    lower = body.lower()
     if "another active session" in lower:
         return True
     if "session has now been terminated" in lower:

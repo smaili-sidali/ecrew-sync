@@ -154,7 +154,19 @@
     function isSessionConflict(status, text) {
         if (!text) return false;
         const trimmed = text.trim();
-        if (!trimmed || isHtmlDocument(trimmed)) return false;
+        if (!trimmed) return false;
+
+        // Page d'erreur "Another active session" servie par le portail en HTML :
+        // le message est injecte par le JS de la page dans un
+        // <div class='error_message'> encapsule dans <div class='error_content'>.
+        // Ces deux classes n'apparaissent dans aucune page eCrew qui reussit
+        // (verifie sur HomeIndex et la page de login), alors que la phrase seule
+        // y figure deja - c'est ce qui rend le matching par sous-chaine invalide.
+        if (/error_content/i.test(trimmed) && /another active session is currently open/i.test(trimmed)) {
+            return true;
+        }
+
+        if (isHtmlDocument(trimmed)) return false;
 
         // Every eCrew page ships the strings "Another active session" and
         // "Session has now been terminated" inside its own inline JS, so a
