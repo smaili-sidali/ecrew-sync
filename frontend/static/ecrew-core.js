@@ -147,6 +147,41 @@
         return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     }
 
+    function isHtmlDocument(text) {
+        return /^(?:﻿)?\s*(<!doctype\s+html|<html[\s>])/i.test(text);
+    }
+
+    function isSessionConflict(status, text) {
+        if (!text) return false;
+        const trimmed = text.trim();
+        if (!trimmed || isHtmlDocument(trimmed)) return false;
+
+        // Every eCrew page ships the strings "Another active session" and
+        // "Session has now been terminated" inside its own inline JS, so a
+        // bare substring match reports a conflict on every successful
+        // HomeIndex / Dashboard response. Require an actual error payload
+        // marker before trusting the wording.
+        const lower = trimmed.toLowerCase();
+        const isErrorPayload =
+            lower.includes("error_message") ||
+            lower.includes("responsedata") ||
+            trimmed.startsWith("{");
+        if (!isErrorPayload) return false;
+
+        if (lower.includes("another active session")) return true;
+        if (lower.includes("session has now been terminated")) return true;
+        if (lower.includes("une autre session")) return true;
+        if (lower.includes("session ecrew est active")) return true;
+        if ((status === 400 || status === 401 || status === 403) && lower.includes("session")) return true;
+        return false;
+    }
+
+    function errorPayloadText(text) {
+        if (!text) return '';
+        const trimmed = text.trim();
+        return isHtmlDocument(trimmed) ? '' : trimmed;
+    }
+
     async function requestLogout(sessionId) {
         if (!sessionId) return;
         try {
@@ -161,6 +196,12 @@
                 }
             });
         } catch (_) {}
+    }
+
+    async function releaseSessionById(sessionId) {
+        await requestLogout(sessionId);
+        clearCookies();
+        if (readLastSessionId() === sessionId) writeLastSessionId('');
     }
 
     // --- Requêtes HTTP Natives (Capacitor Http / Fetch) ---
@@ -275,6 +316,119 @@
         throw new Error("Impossible de trouver /ecrew/Login/<token> dans la page");
     }
 
+    // Le Dashboard injecte la cle de session DashScope utilisee par
+    // DutyDetails/Retrieve : sessionStorage.setItem("Hash", "<128 hex>").
+    function extractSessionHash(html) {
+        const m = String(html || '').match(/setItem\(\s*["']Hash["']\s*,\s*["']([0-9a-fA-F]{64,})["']\s*\)/);
+        if (!m) {
+            throw new Error("Clé de session (Hash) absente de la page Dashboard eCrew.");
+        }
+        return m[1];
+    }
+
+    // Extrait un tableau JSON litteral place apres un marqueur, en gerant les
+    // chaines et les echappements pour ne pas s'arreter sur un "]" interne.
+    function extractJsonArrayAfter(html, marker) {
+        const text = String(html || '');
+        const at = text.indexOf(marker);
+        if (at < 0) return null;
+        let start = at + marker.length;
+        while (start < text.length && /\s/.test(text.charAt(start))) start++;
+        if (text.charAt(start) !== '[') return null;
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let i = start; i < text.length; i++) {
+            const ch = text.charAt(i);
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (ch === '\\') escaped = true;
+                else if (ch === '"') inString = false;
+                continue;
+            }
+            if (ch === '"') inString = true;
+            else if (ch === '[' || ch === '{') depth++;
+            else if (ch === ']' || ch === '}') {
+                depth--;
+                if (depth === 0) return text.slice(start, i + 1);
+            }
+        }
+        return null;
+    }
+
+    function parseDutyDetails(html) {
+        const raw = extractJsonArrayAfter(html, 'DutyDetails =');
+        if (!raw) return null;
+
+        let legs;
+        try {
+            legs = JSON.parse(raw);
+        } catch (_) {
+            return null;
+        }
+        if (!Array.isArray(legs) || legs.length === 0) return null;
+
+        const crew = [];
+        const seen = new Set();
+        for (const leg of legs) {
+            const members = Array.isArray(leg.CrewOnFlight) ? leg.CrewOnFlight : [];
+            for (const c of members) {
+                const id = c.ID != null ? String(c.ID).trim() : '';
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                const contact = c.Contact || null;
+                crew.push({
+                    id: id,
+                    name: (c.Name || '').trim(),
+                    role: (c.PosQual || '').trim(),
+                    initials: (c.Initials || '').trim(),
+                    aircraft: (c.AcQual || '').trim(),
+                    base: (c.BaseQual || '').trim(),
+                    is_pic: c.IsPilotInCommand === true || String(c.Pic || '').toUpperCase() === 'PIC',
+                    pairing: (c.STRoute || '').trim(),
+                    max_fdp: (c.MaxFDP || '').trim(),
+                    actual_fdp: (c.ActualFDP || '').trim(),
+                    checked_in: c.CheckedIn === true,
+                    nationality: (c.Nationality || '').trim(),
+                    seniority: (c.CrewSeniority || '').trim(),
+                    photo: typeof c.CrewPhoto === 'string' ? c.CrewPhoto : '',
+                    contact: contact ? {
+                        phone: (contact.Phone || '').trim(),
+                        email: (contact.Email || '').trim(),
+                        address: (contact.Address || '').trim()
+                    } : null
+                });
+            }
+        }
+
+        const summary = legs.map((leg) => ({
+            flight_number: (leg.FlightNumber || '').trim(),
+            date: (leg.Date || '').trim(),
+            aircraft_type: (leg.AcType || '').trim(),
+            registration: (leg.Registration || '').trim(),
+            departure: (leg.DepStation || '').trim(),
+            arrival: (leg.ArrStation || '').trim(),
+            departure_name: (leg.DepStationDescription || '').trim(),
+            arrival_name: (leg.ArrStationDescription || '').trim(),
+            report_time: (leg.StartTime || '').trim(),
+            debrief_time: (leg.EndTime || '').trim(),
+            departure_time: (leg.LegStartTime || '').trim(),
+            arrival_time: (leg.LegEndTime || '').trim(),
+            gate: (leg.Gate || '').trim(),
+            stand: (leg.Stand || '').trim(),
+            pax: (leg.ExpPax || '').trim(),
+            distance: (leg.Distance || '').trim(),
+            delay: (leg.Delay || '').trim()
+        }));
+
+        return {
+            flight_number: summary.length ? summary[0].flight_number : '',
+            legs: summary,
+            crew: crew
+        };
+    }
+
     // --- Parser de planning DayPilot / HTML ---
     function scanBracket(html, openIdx) {
         const stack = [];
@@ -364,7 +518,19 @@
         if (!etypeRaw && ev.cssClass) {
             etypeRaw = ev.cssClass.replace('_event', '').replace('_published', '');
         }
-        const dutyType = normDutyType(etypeRaw);
+        let dutyType = normDutyType(etypeRaw);
+
+        // Le portail type certains vols "Default" (et non "Flight"). Leur event id
+        // ("35739on2026-07-3102:15:00_17013_17010_137979179576_135_17013")
+        // porte un CRRoute non nul, la ou les hotels ont 0 : c'est le seul
+        // discriminant fiable pour ne pas classer un vol en "other".
+        if (dutyType === "other" && ev.id) {
+            const seg = String(ev.id).split('_');
+            const crRoute = seg.slice(1).find((s) => /^\d{6,}$/.test(s));
+            if (crRoute && crRoute !== "0") {
+                dutyType = "flight";
+            }
+        }
 
         const entry = {
             date: date,
@@ -381,15 +547,27 @@
         };
 
         // Numéro de vol
+        // eCrew n'emploie pas de préfixe compagnie : les vols sont "2700",
+        // "1004", "3156" et le texte est "2700\r\nALG-YUL". Le dernier segment
+        // de l'id est une clé de date ("17079"), pas le vol.
         let flt = ev.flight_no || ev.flt_no || ev.flt || ev.fnum || ev.pairing;
         if (!flt && ev.id) {
             const parts = ev.id.split('_');
-            const tail = parts[parts.length - 1];
-            if (/[A-Z]{2}\d+/.test(tail)) flt = tail;
+            for (let i = parts.length - 1; i >= 0 && !flt; i--) {
+                if (/^[A-Z]{2}\d{3,4}$/.test(parts[i])) flt = parts[i];
+            }
         }
         if (!flt && ev.text) {
-            const fm = ev.text.match(/\b([A-Z]{2}\d{3,4})\b/);
-            if (fm) flt = fm[1];
+            // Format réel : le numéro est le premier jeton de la 1re ligne
+            // ("2700" puis "ALG-YUL"). Ancré en début de ligne pour ne pas
+            // confondre avec une date ("Rest (06/08/2026 18:40)" -> 2026).
+            const firstLine = String(ev.text).split(/[\r\n]+/)[0];
+            const bare = firstLine.match(/^\s*(\d{3,4})\b/);
+            if (bare) flt = bare[1];
+            else {
+                const pm = firstLine.match(/\b([A-Z]{2}\d{3,4})\b/);
+                if (pm) flt = pm[1];
+            }
         }
         entry.flight_number = flt || null;
 
@@ -531,15 +709,15 @@
         extractVerificationToken,
         extractWinObj,
         extractLoginToken,
+        extractSessionHash,
+        parseDutyDetails,
         parseRosterHtml,
         parseEventToEntry,
         generateICS,
 
         // Libération explicite du verrou serveur AIMS via LogoutP
         async releaseSession(sessionId) {
-            await requestLogout(sessionId);
-            clearCookies();
-            if (readLastSessionId() === sessionId) writeLastSessionId('');
+            await releaseSessionById(sessionId);
         },
 
         // Flux complet de synchronisation directe avec eCrew
@@ -547,43 +725,8 @@
             const cleanBase = baseUrl.replace(/\/+$/, '');
             const report = (msg) => { if (typeof onProgress === 'function') onProgress(msg); };
 
-            // Réinitialisation des cookies au départ
+// Réinitialisation des cookies au départ
             clearCookies();
-
-            function isHtmlDocument(text) {
-                return /^(?:\uFEFF)?\s*(<!doctype\s+html|<html[\s>])/i.test(text);
-            }
-
-            function isSessionConflict(status, text) {
-                if (!text) return false;
-                const trimmed = text.trim();
-                if (!trimmed || isHtmlDocument(trimmed)) return false;
-
-                // Every eCrew page ships the strings "Another active session" and
-                // "Session has now been terminated" inside its own inline JS, so a
-                // bare substring match reports a conflict on every successful
-                // HomeIndex / Dashboard response. Require an actual error payload
-                // marker before trusting the wording.
-                const lower = trimmed.toLowerCase();
-                const isErrorPayload =
-                    lower.includes("error_message") ||
-                    lower.includes("responsedata") ||
-                    trimmed.startsWith("{");
-                if (!isErrorPayload) return false;
-
-                if (lower.includes("another active session")) return true;
-                if (lower.includes("session has now been terminated")) return true;
-                if (lower.includes("une autre session")) return true;
-                if (lower.includes("session ecrew est active")) return true;
-                if ((status === 400 || status === 401 || status === 403) && lower.includes("session")) return true;
-                return false;
-            }
-
-            function errorPayloadText(text) {
-                if (!text) return '';
-                const trimmed = text.trim();
-                return isHtmlDocument(trimmed) ? '' : trimmed;
-            }
 
             const self = this;
 
@@ -810,6 +953,156 @@
             }
 
             return await runAttempt(1);
+        },
+
+        // Équipage d'un vol : 3 appels eCrew (Dashboard -> Hash,
+        // DutyDetails/Retrieve -> jeton, DutyDetails/<ed> -> HTML).
+        // Le portail n'acceptant qu'une session à la fois, on ouvre une session
+        // dédiée puis on la libère, comme pour une synchronisation.
+        async fetchDutyCrew(username, password, eventId, crewResource = 'A', timesIn = '2', baseUrl = DEFAULT_BASE_URL, onProgress = null) {
+            const cleanBase = baseUrl.replace(/\/+$/, '');
+            const report = (msg) => { if (typeof onProgress === 'function') onProgress(msg); };
+            if (!eventId) {
+                throw new Error("Identifiant d'événement manquant : impossible de retrouver l'équipage de ce vol.");
+            }
+
+            clearCookies();
+            let sessionId = null;
+
+            try {
+                report("Connexion au portail eCrew…");
+                const pageRes = await request({
+                    url: cleanBase,
+                    method: 'GET',
+                    headers: { "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+                    responseType: 'text'
+                });
+                if (pageRes.status !== 200 || !pageRes.text) {
+                    throw new Error("Impossible de joindre le portail eCrew (HTTP " + pageRes.status + ").");
+                }
+
+                const token = extractVerificationToken(pageRes.text);
+                const winObj = extractWinObj(pageRes.text);
+                const loginToken = extractLoginToken(pageRes.text);
+                sessionId = makeSessionId();
+
+                const postRes = await request({
+                    url: `${cleanBase}/Login/${loginToken}`,
+                    method: 'POST',
+                    headers: {
+                        "Content-Type": "application/json",
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "RequestVerificationToken": token,
+                        "Origin": ORIGIN,
+                        "Referer": cleanBase,
+                        "Accept": "*/*",
+                        "X-Requested-With": "XMLHttpRequest"
+                    },
+                    data: {
+                        crewid: String(username).trim(),
+                        password: await sha512(password),
+                        chk: "",
+                        cio: "",
+                        alias: "",
+                        rad: "",
+                        winObj: winObj,
+                        hotp: ""
+                    },
+                    responseType: 'text'
+                });
+
+                if (isSessionConflict(postRes.status, postRes.text)) {
+                    throw new Error(CONFLICT_ERROR_MESSAGE);
+                }
+                if (postRes.status !== 200) {
+                    throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
+                }
+                const postPayload = errorPayloadText(postRes.text);
+                if (postPayload.includes("Invalid Credentials") || postPayload.includes("Identifiants")) {
+                    throw new Error("Matricule ou mot de passe eCrew incorrect.");
+                }
+
+                report("Lecture du vol…");
+                const homeReferer = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${encodeURIComponent(sessionId)}`;
+                const dashRes = await request({
+                    url: `${APP_BASE}/Dashboard`,
+                    method: 'GET',
+                    headers: {
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "Referer": cleanBase,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    },
+                    responseType: 'text'
+                });
+                const sessionHash = extractSessionHash(dashRes.text || '');
+
+                const dutyData = {
+                    id: eventId,
+                    crewID: crewResource || 'A',
+                    timesIn: String(timesIn || '2'),
+                    Port: '',
+                    HotelIndex: '',
+                    HotelInfo: {}
+                };
+
+                const retrieveRes = await request({
+                    url: `${APP_BASE}/DutyDetails/Retrieve`,
+                    method: 'POST',
+                    headers: {
+                        "Content-Type": "application/json",
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "RequestVerificationToken": token,
+                        "Origin": ORIGIN,
+                        "Referer": homeReferer,
+                        "Accept": "*/*",
+                        "X-Requested-With": "XMLHttpRequest"
+                    },
+                    data: { Key: sessionHash, Data: JSON.stringify(dutyData) },
+                    responseType: 'text'
+                });
+                if (retrieveRes.status !== 200) {
+                    throw new Error("DutyDetails/Retrieve a échoué (HTTP " + retrieveRes.status + ").");
+                }
+
+                let retrievePayload;
+                try {
+                    retrievePayload = JSON.parse(retrieveRes.text || '');
+                } catch (_) {
+                    throw new Error("Réponse DutyDetails/Retrieve illisible.");
+                }
+                if (!retrievePayload || !retrievePayload.ed || !retrievePayload.dt) {
+                    throw new Error("Le portail n'a pas renvoyé de jeton d'équipage pour ce vol.");
+                }
+
+                report("Chargement de l'équipage…");
+                const detailRes = await request({
+                    url: `${APP_BASE}/DutyDetails/${encodeURIComponent(retrievePayload.ed)}` +
+                        `?dt=${encodeURIComponent(JSON.stringify(retrievePayload.dt))}` +
+                        `&eCrewHeader=${encodeURIComponent(sessionId)}`,
+                    method: 'GET',
+                    headers: {
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
+                        "Referer": homeReferer,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+                    },
+                    responseType: 'text'
+                });
+                if (detailRes.status !== 200 || !detailRes.text) {
+                    throw new Error("Impossible de charger le détail du vol (HTTP " + detailRes.status + ").");
+                }
+
+                const duty = parseDutyDetails(detailRes.text);
+                if (!duty || !duty.crew.length) {
+                    throw new Error("Le portail n'a renvoyé aucun membre d'équipage pour ce vol.");
+                }
+                return duty;
+            } finally {
+                if (sessionId) await releaseSessionById(sessionId);
+            }
         }
     };
 }));

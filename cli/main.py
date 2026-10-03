@@ -23,7 +23,7 @@ try:  # pragma: no cover - import shim for `python cli/main.py`
         auth,
         config,
         contract,
-        crew_list,
+        duty_details,
         fetch,
         layovers,
         leave,
@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover
         auth,
         config,
         contract,
-        crew_list,
+        duty_details,
         fetch,
         layovers,
         leave,
@@ -405,24 +405,45 @@ def leave_cmd(
 
 @app.command(name="crew")
 def crew_cmd(
-    flight: str = typer.Argument(..., help="Flight number, e.g. AH462 or 3156"),
+    flight: str = typer.Argument(..., help="Flight number, e.g. 462 or AH462"),
     as_json: bool = typer.Option(False, "--json", help="Emit raw JSON"),
+    personal_data: bool = typer.Option(False, "--personal-data", help="Include photo/phone/email"),
 ) -> None:
-    """Lookup flight crew composition (Captain, First Officer, Cabin Crew)."""
-    members = crew_list.get_crew_for_flight(flight)
-    if not members:
-        typer.echo(f"No crew list found for flight {flight}.")
-        return
+    """Real crew composition (cockpit & cabin) of one of your flights.
+
+    Reads the eCrew DutyDetails view, so it needs credentials and a prior sync
+    (the event id is resolved from the stored roster).
+    """
+    from backend import api_helpers
+
+    event_id = api_helpers.find_event_id(flight)
+    if not event_id:
+        typer.secho(
+            f"No flight {flight} in the synced roster. Run 'ecrew-sync sync' first.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        duty = duty_details.fetch_duty_crew_with_login(event_id)
+    except duty_details.DutyDetailsError as exc:
+        typer.secho(f"eCrew refused the crew lookup: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
 
     if as_json:
-        typer.echo(json.dumps(members, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(duty.to_dict(include_personal_data=personal_data), ensure_ascii=False, indent=2))
         return
 
-    typer.secho(f"\n👥 COMPOSITION D'ÉQUIPAGE — VOL {flight.upper()}:\n", fg=typer.colors.BRIGHT_CYAN, bold=True)
-    for m in members:
-        tag = "⭐ " if m.get("is_user") else "   "
-        role_str = f"[{m.get('code')}] {m.get('role')}"
-        typer.echo(f"{tag}{role_str:<40} : {m.get('name')} (Matricule: {m.get('id')})")
+    number = duty.flight_number or flight.upper()
+    typer.secho(f"\n👥 COMPOSITION D'ÉQUIPAGE — VOL {number}:\n", fg=typer.colors.BRIGHT_CYAN, bold=True)
+    for m in duty.crew:
+        tag = "⭐ " if m.is_pic else "   "
+        details = f"Matricule: {m.id}"
+        if m.pairing:
+            details += f" · Pairing {m.pairing}"
+        if m.max_fdp or m.actual_fdp:
+            details += f" · FDP {m.actual_fdp or '—'}/{m.max_fdp or '—'}"
+        typer.echo(f"{tag}[{m.role}] {m.name:<32} : {details}")
     typer.echo("")
 
 

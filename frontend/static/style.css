@@ -460,6 +460,29 @@ body {
     transition: all 0.2s ease;
 }
 
+/* Pastilles inline (fiche équipage) : non cliquables, taille réduite. */
+.chip-inline {
+    display: inline-block;
+    padding: 1px 7px;
+    margin-left: 4px;
+    border-radius: var(--radius-full);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.chip-gold {
+    background: var(--gold-soft);
+    color: var(--gold-accent);
+}
+
+.chip-blue {
+    background: var(--flight-blue-soft);
+    color: var(--flight-blue);
+}
+
 .chip:hover {
     background: rgba(255, 255, 255, 0.08);
     color: var(--text-main);

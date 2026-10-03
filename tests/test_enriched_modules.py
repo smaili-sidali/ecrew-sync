@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from backend import crew_list, leave, training, weather
+from backend import leave, training, weather
 from server.api import app
 
 client = TestClient(app)
@@ -30,13 +30,12 @@ def test_weather_decode_metar():
     assert decoded["flight_category"] == "VFR"
 
 
-def test_crew_list():
-    crew_462 = crew_list.get_crew_for_flight("AH 462")
-    assert len(crew_462) > 0
-    cdb = [c for c in crew_462 if c["code"] == "CDB"]
-    assert len(cdb) == 1
-    opl = [c for c in crew_462 if c["code"] == "OPL"]
-    assert len(opl) >= 1
+def test_crew_endpoint_requires_a_synced_flight():
+    # No fabricated roster any more: the crew comes from the portal's
+    # DutyDetails view, keyed by an event id resolved from the synced roster.
+    res_crew = client.get("/api/crew/AH462")
+    assert res_crew.status_code == 404
+    assert "sync" in res_crew.json()["detail"].lower()
 
 
 def test_qualifications_status():
@@ -79,8 +78,7 @@ def test_api_enriched_endpoints():
     assert "annual_entitlement" in res_leave.json()
 
     res_crew = client.get("/api/crew/AH462")
-    assert res_crew.status_code == 200
-    assert "crew" in res_crew.json()
+    assert res_crew.status_code == 404
 
     res_wx = client.get("/api/weather/ALG")
     assert res_wx.status_code == 200
@@ -136,7 +134,10 @@ def test_cli_enriched_commands(tmp_path, monkeypatch):
     assert runner.invoke(cli_app, ["perdiem"]).exit_code == 0
     assert runner.invoke(cli_app, ["licenses"]).exit_code == 0
     assert runner.invoke(cli_app, ["leave"]).exit_code == 0
-    assert runner.invoke(cli_app, ["crew", "AH462"]).exit_code == 0
+    # "crew" now hits the portal, so only the "not in the roster" path is
+    # exercised offline.
+    res_crew = runner.invoke(cli_app, ["crew", "9999"])
+    assert res_crew.exit_code == 1
     res_wx = runner.invoke(cli_app, ["weather", "ALG"])
     assert res_wx.exit_code == 0
 

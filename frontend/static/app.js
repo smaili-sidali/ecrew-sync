@@ -687,11 +687,10 @@ function renderDutyCard(e) {
 
     const isFlight = (e.duty_type === 'flight' || Boolean(e.flight_number));
     if (isFlight) {
-        const fltCode = flightNo || 'AH1004';
         const crewBtn = document.createElement('button');
         crewBtn.className = 'action-chip';
         crewBtn.innerHTML = '👥 Équipage';
-        crewBtn.addEventListener('click', () => openCrewModal(fltCode));
+        crewBtn.addEventListener('click', () => openCrewModal(e));
         chipsRow.append(crewBtn);
 
         if (dep) {
@@ -857,7 +856,7 @@ function renderNextDuty(entries = currentLoadedEntries) {
 
     // Attachement des clics
     const crewBtn = $('#nextduty-crew-btn');
-    if (crewBtn) crewBtn.addEventListener('click', () => openCrewModal(fltNo));
+    if (crewBtn) crewBtn.addEventListener('click', () => openCrewModal(nextFlight));
 
     const wxBtn = $('#nextduty-wx-btn');
     if (wxBtn) wxBtn.addEventListener('click', () => openWeatherModal(arrIATA));
@@ -1606,42 +1605,113 @@ if (el.airportRegionFilters) {
     });
 }
 
-function openCrewModal(flightNumber) {
-    if (!el.modalCrew) return;
-    el.modalCrew.classList.remove('hidden');
-    if (el.crewTitle) el.crewTitle.textContent = `Équipage · ${flightNumber || 'Vol'}`;
-    if (el.crewBody) {
-        el.crewBody.innerHTML = `
-            <div style="display:flex; flex-direction:column; gap:10px;">
-                <div class="layover-card" style="padding:12px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <div style="width:36px; height:36px; border-radius:50%; background:var(--gold-soft); color:var(--gold-accent); display:grid; place-items:center; font-weight:800;">CPT</div>
-                        <div>
-                            <strong>Commandant de Bord</strong>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">CDB A330 / B737 · Base Alger</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="layover-card" style="padding:12px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <div style="width:36px; height:36px; border-radius:50%; background:var(--flight-blue-soft); color:var(--flight-blue); display:grid; place-items:center; font-weight:800;">FO</div>
-                        <div>
-                            <strong>Officier Pilote de Ligne</strong>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">OPL · Base Alger</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="layover-card" style="padding:12px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <div style="width:36px; height:36px; border-radius:50%; background:var(--airalgerie-red-soft); color:var(--airalgerie-red); display:grid; place-items:center; font-weight:800;">CC</div>
-                        <div>
-                            <strong>Chef de Cabine Principal</strong>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">Cabine Principale & Équipage PNC (4)</div>
-                        </div>
-                    </div>
+const ROLE_LABELS = {
+    CP: 'Commandant de bord',
+    FO: 'Officier Pilote de Ligne',
+    PC: 'Cabin Crew',
+    CCP: 'Chef de cabine principal',
+    CC: 'Chef de cabine',
+    FA: 'Personnel Navigant Commercial',
+    PNC: 'Personnel Navigant Commercial'
+};
+
+function escHtml(value) {
+    return esc(value);
+}
+
+function eventIdOf(entry) {
+    if (!entry || !entry.raw) return '';
+    try {
+        const ev = JSON.parse(entry.raw);
+        if (ev && typeof ev.id === 'string') return ev.id;
+    } catch (_) {}
+    return '';
+}
+
+function crewMemberCard(m, currentCrewId) {
+    const role = ROLE_LABELS[m.role] || m.role || 'Équipage';
+    const isSelf = currentCrewId && String(m.id) === String(currentCrewId);
+    const badge = m.is_pic ? '<span class="chip-inline chip-gold">PIC</span>' : '';
+    const avatar = m.photo
+        ? `<img src="${escHtml(m.photo)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
+        : `<div style="width:36px;height:36px;border-radius:50%;background:var(--gold-soft);color:var(--gold-accent);display:grid;place-items:center;font-weight:800;font-size:0.8rem;">${escHtml(m.initials || (m.name || '?').slice(0, 2).toUpperCase())}</div>`;
+
+    const lines = [`<div style="font-size:0.75rem;color:var(--text-muted);">${escHtml(role)}${m.aircraft ? ' · ' + escHtml(m.aircraft) : ''}${m.base ? ' · Base ' + escHtml(m.base) : ''}</div>`];
+    if (m.id) lines.push(`<div style="font-size:0.72rem;color:var(--text-muted);">Matricule ${escHtml(m.id)}${m.pairing ? ' · Pairing ' + escHtml(m.pairing) : ''}</div>`);
+    if (m.max_fdp || m.actual_fdp) {
+        lines.push(`<div style="font-size:0.72rem;color:var(--text-muted);">FDP max ${escHtml(m.max_fdp || '—')} · réel ${escHtml(m.actual_fdp || '—')}</div>`);
+    }
+    if (m.checked_in) lines.push(`<div style="font-size:0.72rem;color:var(--rest-green);">✓ Checked in</div>`);
+
+    return `
+        <div class="layover-card" style="padding:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                ${avatar}
+                <div style="flex:1;min-width:0;">
+                    <strong>${escHtml(m.name || '—')}</strong> ${badge}${isSelf ? '<span class="chip-inline chip-blue">Vous</span>' : ''}
+                    ${lines.join('')}
                 </div>
             </div>
-        `;
+        </div>`;
+}
+
+function renderCrewBody(duty, entry, currentCrewId) {
+    const leg = (duty.legs && duty.legs[0]) || {};
+    const facts = [];
+    if (leg.departure && leg.arrival) facts.push(`${escHtml(leg.departure)} → ${escHtml(leg.arrival)}`);
+    if (leg.registration) facts.push(escHtml(leg.registration));
+    if (leg.report_time) facts.push(`Rapport ${escHtml(leg.report_time)}`);
+    if (leg.debrief_time) facts.push(`Débrief ${escHtml(leg.debrief_time)}`);
+    if (leg.pax && leg.pax !== '-') facts.push(`${escHtml(leg.pax)} PAX`);
+    if (leg.distance && leg.distance !== '-') facts.push(escHtml(leg.distance));
+
+    return `
+        ${facts.length ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:10px;">${facts.join(' · ')}</div>` : ''}
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            ${duty.crew.map((m) => crewMemberCard(m, currentCrewId)).join('')}
+        </div>`;
+}
+
+async function openCrewModal(entry) {
+    if (!el.modalCrew) return;
+
+    const flightNumber = (entry && entry.flight_number) || entry || '';
+    if (el.crewTitle) el.crewTitle.textContent = `Équipage · ${flightNumber || 'Vol'}`;
+    if (el.crewBody) el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Chargement de l’équipage…</div>';
+    el.modalCrew.classList.remove('hidden');
+
+    const eventId = eventIdOf(entry);
+    if (!eventId) {
+        if (el.crewBody) {
+            el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Numéro d’événement indisponible pour ce vol. Resynchronisez le planning.</div>';
+        }
+        return;
+    }
+
+    const creds = getCredentials();
+    if (!creds.username || !creds.password) {
+        openSettingsModal();
+        if (el.crewBody) {
+            el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Matricule et mot de passe requis dans les paramètres.</div>';
+        }
+        return;
+    }
+
+    try {
+        const duty = await window.EcrewCore.fetchDutyCrew(
+            creds.username,
+            creds.password,
+            eventId,
+            'A',
+            '2',
+            undefined,
+            (msg) => { if (el.crewBody) el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--text-muted);">${escHtml(msg)}</div>`; }
+        );
+        if (el.crewBody) el.crewBody.innerHTML = renderCrewBody(duty, entry, creds.username);
+    } catch (err) {
+        if (el.crewBody) {
+            el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--airalgerie-red);">${escHtml(err.message || String(err))}</div>`;
+        }
     }
 }
 

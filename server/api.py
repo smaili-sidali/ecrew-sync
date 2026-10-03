@@ -16,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 # Import as a package (server.api) or by path (uvicorn server.api:app).
 try:  # pragma: no cover - import shim for direct script execution
-    from backend import config, store
-    from backend import crew_list as crew_mod
+    from backend import api_helpers, config, store
+    from backend import duty_details as duty_mod
     from backend import export as export_mod
     from backend import layovers as layovers_mod
     from backend import leave as leave_mod
@@ -38,8 +38,8 @@ except ImportError:  # pragma: no cover
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from backend import config, store
-    from backend import crew_list as crew_mod
+    from backend import api_helpers, config, store
+    from backend import duty_details as duty_mod
     from backend import export as export_mod
     from backend import layovers as layovers_mod
     from backend import leave as leave_mod
@@ -265,11 +265,35 @@ async def get_leave() -> dict:
     return leave_mod.load_leave_data()
 
 
+def _find_event_id(flight_number: str) -> str:
+    """Resolve a flight number to its schedule event id via the synced roster."""
+    return api_helpers.find_event_id(flight_number)
+
+
 @app.get("/api/crew/{flight_number}", dependencies=[Depends(require_token)])
-async def get_crew(flight_number: str) -> dict:
-    """Crew list (Cockpit & Cabin) for a flight number."""
-    crew = crew_mod.get_crew_for_flight(flight_number)
-    return {"flight_number": flight_number, "crew": crew}
+async def get_crew(flight_number: str, include_personal_data: bool = Query(False)) -> dict:
+    """Real crew composition (cockpit & cabin) for one of your flights.
+
+    Data comes from the portal's DutyDetails view, keyed by the schedule event
+    id. ``include_personal_data`` additionally returns each colleague's photo,
+    phone, e-mail and home address.
+    """
+    event_id = _find_event_id(flight_number)
+    if not event_id:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Aucun vol {flight_number} dans le planning synchronisé. "
+                "Lancez une synchronisation puis réessayez."
+            ),
+        )
+    try:
+        duty = duty_mod.fetch_duty_crew_with_login(event_id)
+    except duty_mod.DutyDetailsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    payload = duty.to_dict(include_personal_data=include_personal_data)
+    payload["requested_flight_number"] = flight_number
+    return payload
 
 
 @app.get("/api/weather/{code}")
