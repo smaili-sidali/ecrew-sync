@@ -420,7 +420,11 @@ def _login_once(
         "Origin": ORIGIN,
         "Referer": base_url,
         "Accept": "*/*",
-        "X-Requested-With": "XMLHttpRequest",
+        # Pas de X-Requested-With ici : le POST de login du site n'en envoie pas
+        # (cf. capture HAR) et la session creee n'est enregistree que si on s'y
+        # conforme. Avec cet en-tete, le login renvoie 200 mais la session
+        # n'est pas enregistree et l'appel suivant (HomeIndex, GetMenu) se
+        # fait refuser en "Another active session".
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",

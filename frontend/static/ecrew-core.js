@@ -340,11 +340,11 @@
 
     // Extrait un tableau JSON litteral place apres un marqueur, en gerant les
     // chaines et les echappements pour ne pas s'arreter sur un "]" interne.
-    function extractJsonArrayAfter(html, marker) {
+    function extractJsonArrayAfter(html, pattern) {
         const text = String(html || '');
-        const at = text.indexOf(marker);
-        if (at < 0) return null;
-        let start = at + marker.length;
+        const found = pattern.exec(text);
+        if (!found) return null;
+        let start = found.index + found[0].length;
         while (start < text.length && /\s/.test(text.charAt(start))) start++;
         if (text.charAt(start) !== '[') return null;
 
@@ -370,7 +370,7 @@
     }
 
     function parseDutyDetails(html) {
-        const raw = extractJsonArrayAfter(html, 'DutyDetails =');
+        const raw = extractJsonArrayAfter(html, /\bDutyDetails\s*=/);
         if (!raw) return null;
 
         let legs;
@@ -828,8 +828,12 @@
                             "RequestVerificationToken": token,
                             "Origin": ORIGIN,
                             "Referer": cleanBase,
-                            "Accept": "*/*",
-                            "X-Requested-With": "XMLHttpRequest"
+                            "Accept": "*/*"
+                            // Pas de X-Requested-With : le POST de login du site
+                            // n'en envoie pas. Avec, le login renvoie 200 mais la
+                            // session n'est pas enregistree et l'appel suivant
+                            // (HomeIndex, GetMenu) est refuse en "Another active
+                            // session" - voir backend/auth.py pour le detail.
                         },
                         data: loginPayload,
                         responseType: 'text'
@@ -922,12 +926,11 @@
                                 "Content-Type": "application/json",
                                 "eCrewHeader": sessionId,
                                 "ecrewheader": sessionId,
-                                "RequestVerificationToken": activeToken,
-                                "Origin": ORIGIN,
-                                "Referer": `${APP_BASE}/Dashboard`,
-                                "X-Requested-With": "XMLHttpRequest",
-                                "Accept": "*/*"
-                            },
+"RequestVerificationToken": activeToken,
+                                  "Origin": ORIGIN,
+                                  "Referer": `${APP_BASE}/Dashboard`,
+                                  "Accept": "*/*"
+                              },
                             data: { Menu: "A1" },
                             responseType: 'text'
                         });
@@ -1008,8 +1011,10 @@
                         "RequestVerificationToken": token,
                         "Origin": ORIGIN,
                         "Referer": cleanBase,
-                        "Accept": "*/*",
-                        "X-Requested-With": "XMLHttpRequest"
+                        "Accept": "*/*"
+                        // cf. syncDirect : le login du site n'envoie pas
+                        // X-Requested-With, et la session n'est enregistree
+                        // que si on s'y conforme.
                     },
                     data: {
                         crewid: String(username).trim(),
@@ -1069,8 +1074,7 @@
                         "RequestVerificationToken": token,
                         "Origin": ORIGIN,
                         "Referer": homeReferer,
-                        "Accept": "*/*",
-                        "X-Requested-With": "XMLHttpRequest"
+                        "Accept": "*/*"
                     },
                     data: { Key: sessionHash, Data: JSON.stringify(dutyData) },
                     responseType: 'text'

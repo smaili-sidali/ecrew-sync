@@ -91,13 +91,35 @@ def test_missing_contact_block_is_tolerated(duty):
 
 def test_extract_json_array_handles_brackets_inside_strings():
     html = 'var X = [{"a": "]not an end["}, {"b": 2}]; var Y = 1;'
-    raw = duty_details.extract_json_array_after(html, "X =")
+    raw = duty_details.extract_json_array_after(html, r"\bX\s*=")
     assert raw is not None
     assert json.loads(raw) == [{"a": "]not an end["}, {"b": 2}]
 
 
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "var DutyDetails =",
+        "var DutyDetails=",
+        "let DutyDetails\n=\n",
+        "var x; var DutyDetails =",
+    ],
+)
+def test_parse_tolerates_spacing_around_the_assignment(assignment):
+    # The portal is not consistent: "var DutyDetails = [" on one page,
+    # "var DutyDetails=[" on another. Matching the literal string with a space
+    # silently returned no crew.
+    payload = '[{"FlightNumber":"2700","CrewOnFlight":[{"ID":"1","Name":"A","PosQual":"CP"}]}]'
+    html = f"<html><body><script>{assignment}{payload};</script></body></html>"
+    duty = duty_details.parse_duty_details(html)
+    assert duty is not None
+    assert duty.flight_number == "2700"
+    assert len(duty.crew) == 1
+    assert duty.crew[0].id == "1"
+
+
 def test_extract_json_array_returns_none_when_absent():
-    assert duty_details.extract_json_array_after("<html></html>", "DutyDetails =") is None
+    assert duty_details.extract_json_array_after("<html></html>", r"\bDutyDetails\s*=") is None
 
 
 def test_parse_returns_none_on_garbage():
@@ -137,12 +159,18 @@ def test_fetch_issues_the_three_portal_calls():
     session = _RecordingSession(calls)
     duty = duty_details.fetch_duty_crew(session, EVENT_ID)
 
-    assert [c[0] for c in calls] == ["GET /Dashboard", "POST /DutyDetails/Retrieve", "GET /DutyDetails/<ed>"]
+    assert [c[0] for c in calls] == [
+        "GET /Dashboard",
+        "GET /HomeIndex",
+        "POST /DutyDetails/Retrieve",
+        "GET /DutyDetails/<ed>",
+    ]
     assert duty.flight_number == "463"
     assert len(duty.crew) == 10
 
-    sent = json.loads(calls[1][1])
+    sent = json.loads(calls[2][1])
     assert sent["Key"] == "b2" * 64
+    assert sent["Key"] and json.loads(sent["Data"])["id"] == EVENT_ID
     assert json.loads(sent["Data"]) == {
         "id": EVENT_ID,
         "crewID": "A",
@@ -152,9 +180,18 @@ def test_fetch_issues_the_three_portal_calls():
         "HotelInfo": {},
     }
     # The third call is GET DutyDetails/<ed> with dt + eCrewHeader as query params.
-    assert "/DutyDetails/EDTOKEN" in calls[2][1]
-    assert "dt=" in calls[2][1]
-    assert "eCrewHeader=sess-1" in calls[2][1]
+    assert "/DutyDetails/EDTOKEN" in calls[3][1]
+    assert "dt=" in calls[3][1]
+    assert "eCrewHeader=sess-1" in calls[3][1]
+
+    # Retrieve must carry the Dashboard's verification token, not a stale one.
+    assert json.loads(calls[2][1])["Key"] == "b2" * 64
+
+
+DASHBOARD_HTML = (
+    '<input name="__RequestVerificationToken" type="hidden" value="dash-token-42" />'
+    '<script>sessionStorage.setItem("Hash","' + "b2" * 64 + '")</script>'
+)
 
 
 class _RecordingSession:
@@ -166,7 +203,11 @@ class _RecordingSession:
     def get(self, url: str, headers=None, timeout=None, params=None):
         if url.endswith("/Dashboard"):
             self.calls.append(("GET /Dashboard", url))
-            return _Resp(200, 'setItem("Hash","' + "b2" * 64 + '")')
+            return _Resp(200, DASHBOARD_HTML)
+        if "HomeIndex" in url:
+            # Required before DutyDetails/Retrieve: it registers the duty context.
+            self.calls.append(("GET /HomeIndex", url))
+            return _Resp(200, "var events = [];")
         query = urllib.parse.urlencode(params or {})
         self.calls.append(("GET /DutyDetails/<ed>", f"{url}?{query}"))
         return _Resp(200, FIXTURE.read_text(encoding="utf-8"))

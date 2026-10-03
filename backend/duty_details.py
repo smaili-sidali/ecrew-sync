@@ -27,7 +27,7 @@ from typing import Any
 import requests
 
 from . import config
-from .auth import ORIGIN, TIMEOUT, get_session_id
+from .auth import ORIGIN, TIMEOUT, _extract_verification_token, get_session_id
 
 _RE_SESSION_HASH = re.compile(
     r"""setItem\(\s*["']Hash["']\s*,\s*["']([0-9a-fA-F]{64,})["']\s*\)""",
@@ -162,13 +162,18 @@ def extract_session_hash(html: str) -> str:
     return m.group(1)
 
 
-def extract_json_array_after(html: str, marker: str) -> str | None:
-    """Slice the JSON array literal that follows ``marker``, string-aware."""
+def extract_json_array_after(html: str, pattern: str) -> str | None:
+    """Slice the JSON array literal that follows ``pattern``, string-aware.
+
+    ``pattern`` is a regex whose match must end right before the opening
+    bracket - the portal is not consistent on spacing (``var DutyDetails = [{``
+    on one page, ``var DutyDetails=[{`` on another).
+    """
     text = html or ""
-    at = text.find(marker)
-    if at < 0:
+    found = re.search(pattern, text)
+    if not found:
         return None
-    start = at + len(marker)
+    start = found.end()
     while start < len(text) and text[start].isspace():
         start += 1
     if start >= len(text) or text[start] != "[":
@@ -200,7 +205,7 @@ def extract_json_array_after(html: str, marker: str) -> str | None:
 
 def parse_duty_details(html: str) -> DutyDetails | None:
     """Parse ``var DutyDetails = [...]`` into a :class:`DutyDetails`."""
-    raw = extract_json_array_after(html, "DutyDetails =")
+    raw = extract_json_array_after(html, r"\bDutyDetails\s*=")
     if not raw:
         return None
     try:
@@ -311,6 +316,25 @@ def fetch_duty_crew(
         raise DutyDetailsError(f"Dashboard returned HTTP {dash.status_code}")
     session_hash = extract_session_hash(dash.text)
 
+    # Le jeton de verification tourne a chaque page : c'est celui du Dashboard
+    # qui doit accompanyer les appels suivants. Le header de session ne le
+    # contient pas (il n'est pose que sur le POST de login), d'ou l'extraction.
+    try:
+        active_token = _extract_verification_token(dash.text)
+    except Exception as exc:  # pragma: no cover - layout change
+        raise DutyDetailsError(f"Verification token absent du Dashboard: {exc}") from exc
+
+    # HomeIndex d'abord : c'est lui qui enregistre le contexte du planning et le
+    # Hash cote serveur. Sans cet appel, Dashboard/Retrieve renvoie 400 "Another
+    # active session" alors que le login a reussi. Un 400 ici est tolere (le
+    # portail le renvoie parfois), l'etape suivante est celle qui compte.
+    session.get(
+        f"{base}/Dashboard/HomeIndex",
+        params={"eCrewHeader": session_id},
+        headers={"Referer": f"{base}/Dashboard", "Accept": _RE_ACCEPT_HTML},
+        timeout=TIMEOUT,
+    )
+
     duty_data = {
         "id": event_id,
         "crewID": crew_resource or "A",
@@ -328,7 +352,7 @@ def fetch_duty_crew(
             "Content-Type": "application/json",
             "eCrewHeader": session_id,
             "ecrewheader": session_id,
-            "RequestVerificationToken": _s(session.headers.get("RequestVerificationToken")),
+            "RequestVerificationToken": active_token,
             "Origin": ORIGIN,
             "Referer": home_referer,
             "Accept": "*/*",
