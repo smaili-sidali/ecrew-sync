@@ -15,6 +15,14 @@
     const APP_BASE = "https://ecrew.airalgerie.dz/eCrew";
     const ORIGIN = "https://ecrew.airalgerie.dz";
 
+    const CONFLICT_BACKOFF_SECONDS = [15, 30, 60];
+    const CONFLICT_MAX_ATTEMPTS = CONFLICT_BACKOFF_SECONDS.length + 1;
+    const CONFLICT_ERROR_MESSAGE =
+        "Une autre session eCrew est active sur votre compte. Si vous êtes connecté sur votre " +
+        "ordinateur, déconnectez-vous d'eCrew. Sinon, patientez 60 secondes que le serveur libère " +
+        "l'accès puis réappuyez sur Synchroniser.";
+    const LAST_SESSION_KEY = "ecrew_last_session_id";
+
     const TYPE_MAP = {
         flight: "flight",
         flt: "flight",
@@ -98,6 +106,61 @@
     function getCookieHeader() {
         const pairs = Object.entries(cookieJar).map(([k, v]) => `${k}=${v}`);
         return pairs.length > 0 ? pairs.join('; ') : '';
+    }
+
+    function clearCookies() {
+        for (const k of Object.keys(cookieJar)) {
+            delete cookieJar[k];
+        }
+    }
+
+    function readLastSessionId() {
+        try {
+            if (typeof localStorage === 'undefined') return '';
+            return localStorage.getItem(LAST_SESSION_KEY) || '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function writeLastSessionId(sessionId) {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            if (sessionId) localStorage.setItem(LAST_SESSION_KEY, sessionId);
+            else localStorage.removeItem(LAST_SESSION_KEY);
+        } catch (_) {}
+    }
+
+    function getHeaderValue(headers, name) {
+        if (!headers) return null;
+        const wanted = name.toLowerCase();
+        for (const key of Object.keys(headers)) {
+            if (key.toLowerCase() === wanted) return headers[key];
+        }
+        return null;
+    }
+
+    function retryAfterSeconds(res) {
+        const raw = getHeaderValue(res && res.headers, 'Retry-After');
+        if (raw == null) return 0;
+        const seconds = parseInt(String(raw).trim(), 10);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    }
+
+    async function requestLogout(sessionId) {
+        if (!sessionId) return;
+        try {
+            await request({
+                url: `${APP_BASE}/Dashboard/LogoutP?sl=xslx&eCrewHeader=${encodeURIComponent(sessionId)}`,
+                method: 'GET',
+                headers: {
+                    "eCrewHeader": sessionId,
+                    "ecrewheader": sessionId,
+                    "Referer": `${APP_BASE}/Dashboard`,
+                    "Accept": "*/*"
+                }
+            });
+        } catch (_) {}
     }
 
     // --- Requêtes HTTP Natives (Capacitor Http / Fetch) ---
@@ -474,23 +537,9 @@
 
         // Libération explicite du verrou serveur AIMS via LogoutP
         async releaseSession(sessionId) {
-            if (!sessionId) return;
-            try {
-                await request({
-                    url: `${APP_BASE}/Dashboard/LogoutP?sl=xslx&eCrewHeader=${encodeURIComponent(sessionId)}`,
-                    method: 'GET',
-                    headers: {
-                        "eCrewHeader": sessionId,
-                        "ecrewheader": sessionId,
-                        "Referer": `${APP_BASE}/Dashboard`,
-                        "Accept": "*/*"
-                    }
-                });
-            } catch (_) {}
-            // Toujours purger les cookies in-memory résiduels
-            for (const k of Object.keys(cookieJar)) {
-                delete cookieJar[k];
-            }
+            await requestLogout(sessionId);
+            clearCookies();
+            if (readLastSessionId() === sessionId) writeLastSessionId('');
         },
 
         // Flux complet de synchronisation directe avec eCrew
@@ -499,26 +548,50 @@
             const report = (msg) => { if (typeof onProgress === 'function') onProgress(msg); };
 
             // Réinitialisation des cookies au départ
-            for (const k of Object.keys(cookieJar)) {
-                delete cookieJar[k];
-            }
+            clearCookies();
 
             function isSessionConflict(status, text) {
                 if (!text) return false;
                 const lower = text.toLowerCase();
-                return (
-                    lower.includes("another active session") ||
-                    lower.includes("session has now been terminated") ||
-                    (status === 400 && (lower.includes("error_message") || lower.includes("session")))
-                );
+                if (lower.includes("another active session")) return true;
+                if (lower.includes("session has now been terminated")) return true;
+                if (lower.includes("une autre session")) return true;
+                if (lower.includes("session ecrew est active")) return true;
+                if ((status === 400 || status === 401 || status === 403) && lower.includes("session")) return true;
+                return false;
             }
 
             const self = this;
+
+            async function handleConflict(attemptNumber, currentSessionId, res) {
+                await self.releaseSession(currentSessionId);
+
+                const staleSessionId = readLastSessionId();
+                if (staleSessionId && staleSessionId !== currentSessionId) {
+                    await requestLogout(staleSessionId);
+                }
+                writeLastSessionId('');
+
+                if (attemptNumber > CONFLICT_BACKOFF_SECONDS.length) {
+                    throw new Error(CONFLICT_ERROR_MESSAGE);
+                }
+
+                let waitSec = CONFLICT_BACKOFF_SECONDS[attemptNumber - 1];
+                const serverHint = retryAfterSeconds(res);
+                if (serverHint > waitSec) waitSec = Math.min(serverHint, CONFLICT_BACKOFF_SECONDS[CONFLICT_BACKOFF_SECONDS.length - 1]);
+
+                for (let s = waitSec; s > 0; s--) {
+                    report(`Session eCrew déjà active, libération du verrou (${s}s)…`);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+                return await runAttempt(attemptNumber + 1);
+            }
+
             async function runAttempt(attemptNumber = 1) {
                 let sessionId = null;
                 let conflictDetected = false;
                 try {
-                    report(attemptNumber > 1 ? `Tentative ${attemptNumber}/3 de synchronisation…` : "Connexion au portail eCrew…");
+                    report(attemptNumber > 1 ? `Tentative ${attemptNumber}/${CONFLICT_MAX_ATTEMPTS} de synchronisation…` : "Connexion au portail eCrew…");
 
                     // 1. Obtenir la page de connexion
                     let pageRes = await request({
@@ -583,25 +656,18 @@
                         responseType: 'text'
                     });
 
+                    if (isSessionConflict(postRes.status, postRes.text)) {
+                        conflictDetected = true;
+                        return await handleConflict(attemptNumber, sessionId, postRes);
+                    }
                     if (postRes.status !== 200) {
                         throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
                     }
                     if (postRes.text.includes("Invalid Credentials") || postRes.text.includes("Identifiants")) {
                         throw new Error("Matricule ou mot de passe eCrew incorrect.");
                     }
-                    if (isSessionConflict(postRes.status, postRes.text)) {
-                        conflictDetected = true;
-                        await self.releaseSession(sessionId);
-                        if (attemptNumber < 3) {
-                            const waitSec = attemptNumber === 1 ? 5 : 8;
-                            for (let s = waitSec; s > 0; s--) {
-                                report(`Session active détectée, libération du verrou serveur (${s}s)…`);
-                                await new Promise(r => setTimeout(r, 1000));
-                            }
-                            return await runAttempt(attemptNumber + 1);
-                        }
-                        throw new Error("Une autre session eCrew est active sur votre compte. Si vous êtes connecté sur votre ordinateur, déconnectez-vous du portail eCrew. Sinon, patientez 60 secondes que le serveur libère l'accès puis réappuyez sur Synchroniser.");
-                    }
+
+                    writeLastSessionId(sessionId);
 
                     // 3. Charger le shell Dashboard
                     report("Accès au tableau de bord…");
@@ -632,9 +698,10 @@
                     const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${encodeURIComponent(sessionId)}`;
                     let rosterHtml = "";
                     let homeStatus = 0;
+                    let homeRes = null;
 
                     try {
-                        const homeRes = await request({
+                        homeRes = await request({
                             url: homeUrl,
                             method: 'GET',
                             headers: {
@@ -648,9 +715,7 @@
                         homeStatus = homeRes.status;
                         const homeText = homeRes.text || "";
 
-                        if (isSessionConflict(homeStatus, homeText)) {
-                            conflictDetected = true;
-                        } else if (homeStatus === 200 && homeText.includes("events")) {
+                        if (!isSessionConflict(homeStatus, homeText) && homeStatus === 200 && homeText.includes("events")) {
                             rosterHtml = homeText;
                         }
                         if (homeText) {
@@ -663,17 +728,9 @@
                         console.warn("HomeIndex request failed, falling back to GetMenu A1:", homeErr);
                     }
 
-                    if (conflictDetected) {
-                        await self.releaseSession(sessionId);
-                        if (attemptNumber < 3) {
-                            const waitSec = attemptNumber === 1 ? 5 : 8;
-                            for (let s = waitSec; s > 0; s--) {
-                                report(`Session précédente occupée, libération automatique (${s}s)…`);
-                                await new Promise(r => setTimeout(r, 1000));
-                            }
-                            return await runAttempt(attemptNumber + 1);
-                        }
-                        throw new Error("Une autre session eCrew est active sur votre compte. Si vous êtes connecté sur votre ordinateur, déconnectez-vous d'eCrew. Sinon, patientez 60 secondes que le serveur libère l'accès puis réappuyez sur Synchroniser.");
+                    if (homeRes && isSessionConflict(homeStatus, homeRes.text || "")) {
+                        conflictDetected = true;
+                        return await handleConflict(attemptNumber, sessionId, homeRes);
                     }
 
                     // 5. Fallback Menu A1 ("My Schedule") si HomeIndex ne contient pas de planning
@@ -698,16 +755,7 @@
                         const menuText = menuRes.text || "";
                         if (isSessionConflict(menuRes.status, menuText)) {
                             conflictDetected = true;
-                            await self.releaseSession(sessionId);
-                            if (attemptNumber < 3) {
-                                const waitSec = attemptNumber === 1 ? 5 : 8;
-                                for (let s = waitSec; s > 0; s--) {
-                                    report(`Session occupée, libération en cours (${s}s)…`);
-                                    await new Promise(r => setTimeout(r, 1000));
-                                }
-                                return await runAttempt(attemptNumber + 1);
-                            }
-                            throw new Error("Une autre session eCrew est active sur votre compte. Veuillez vous déconnecter du portail eCrew sur votre navigateur, patientez 60 secondes et réappuyez sur Synchroniser.");
+                            return await handleConflict(attemptNumber, sessionId, menuRes);
                         }
 
                         if (menuRes.status === 200 && menuText) {

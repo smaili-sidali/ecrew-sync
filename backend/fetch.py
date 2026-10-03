@@ -24,9 +24,11 @@ from . import config
 from .auth import (
     ORIGIN,
     TIMEOUT,
+    ConcurrentSessionError,
     PortalChangedError,
     _extract_verification_token,
     get_session_id,
+    is_concurrent_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,17 +59,13 @@ class SessionExpiredError(FetchError):
     """The eCrewHeader session is no longer valid — caller should re-login."""
 
 
-class ConcurrentSessionError(FetchError):
-    """Another active session is open under the crew account."""
-
-
 def _looks_like_login_page(text: str) -> bool:
     # A true login page contains the Webix loginForm or swipecard component.
     return "loginForm" in text or "swipecardid" in text
 
 
 def _check_for_errors(text: str) -> None:
-    if "error_message" in text and "Another active session" in text:
+    if is_concurrent_session(200, text):
         raise ConcurrentSessionError(
             "Another active session is currently open under your account. "
             "Please log out of eCrew in your browser or phone app and wait a moment before trying again."
@@ -191,23 +189,30 @@ def fetch_with_relogin(
     password: str,
     base_url: str | None = None,
     cookie_file: Path | None = None,
-    attempts: int = 2,
+    attempts: int | None = None,
 ) -> str:
-    """Fetch the roster view, transparently re-logging in once if the session died."""
+    """Fetch the roster view, transparently re-logging in if the session died.
+
+    On a concurrent session the lock is released via LogoutP on the *stale*
+    session id, then ``auth.login`` retries on its own
+    ``auth.CONFLICT_BACKOFF_SECONDS`` schedule (which spans the ~60 s the portal
+    needs to free the lock), so no extra sleep is added here.
+    """
+    max_attempts = len(_auth.CONFLICT_BACKOFF_SECONDS) + 1 if attempts is None else max(1, attempts)
     last_exc: Exception | None = None
-    for attempt in range(1, max(1, attempts) + 1):
+    for attempt in range(1, max_attempts + 1):
         try:
             return get_roster_page(session)
         except (SessionExpiredError, ConcurrentSessionError) as e:
             last_exc = e
-            if attempt >= attempts:
+            if attempt >= max_attempts:
                 break
             logger.warning("eCrew session invalid (%s; attempt %d); re-logging in", type(e).__name__, attempt)
             if isinstance(e, ConcurrentSessionError):
+                stale_session_id = get_session_id(session)
+                if stale_session_id:
+                    _auth.logout(session, base_url=base_url, session_id=stale_session_id)
                 _auth.logout(session, base_url=base_url, cookie_file=cookie_file)
-                import time
-
-                time.sleep(5)
             session.cookies.clear()
             _auth.login(
                 session,

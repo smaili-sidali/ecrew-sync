@@ -15,9 +15,12 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import random
 import re
+import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,8 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 try:
     from urllib3.util.retry import Retry
@@ -87,6 +92,47 @@ class PortalChangedError(AuthError):
 
 class SessionExpiredError(AuthError):
     """Raised when a previously-valid session needs re-login."""
+
+
+class ConcurrentSessionError(AuthError):
+    """Another eCrew session is already active for this crew id."""
+
+    def __init__(self, message: str, retry_after: int = 0) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+# The portal allows a single active session per crew id and only frees the lock
+# after roughly a minute. Retry delays must cover that window, otherwise every
+# attempt is spent while the lock is still held and the sync can never recover.
+CONFLICT_BACKOFF_SECONDS = (15, 30, 60)
+
+
+def is_concurrent_session(status_code: int, text: str) -> bool:
+    """True when a response body/status means "another session already active"."""
+    lower = (text or "").lower()
+    if not lower:
+        return False
+    if "another active session" in lower:
+        return True
+    if "session has now been terminated" in lower:
+        return True
+    if "une autre session" in lower:
+        return True
+    if "session ecrew est active" in lower:
+        return True
+    return status_code in (400, 401, 403) and "session" in lower
+
+
+def retry_after_seconds(response: requests.Response) -> int:
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return 0
+    try:
+        seconds = int(str(raw).strip())
+    except ValueError:
+        return 0
+    return seconds if seconds > 0 else 0
 
 
 @dataclass(frozen=True)
@@ -220,9 +266,15 @@ def logout(
     session: requests.Session,
     base_url: str | None = None,
     cookie_file: Path | None = None,
+    session_id: str | None = None,
 ) -> None:
-    """Explicitly release the server-side AIMS session lock via LogoutP."""
-    sid = get_session_id(session)
+    """Explicitly release the server-side AIMS session lock via LogoutP.
+
+    ``session_id`` forces the logout of a specific session, which is what the
+    conflict path needs: the lock is held by a *previous* session, so the id of
+    the current (never authenticated) session cannot release it.
+    """
+    sid = session_id or get_session_id(session)
     base = (base_url or config.base_url()).rstrip("/")
     app_base = base[: -len("/ecrew")] + "/eCrew" if base.endswith("/ecrew") else base
     if sid:
@@ -231,10 +283,11 @@ def logout(
     if cookie_file is not None and cookie_file.exists():
         with contextlib.suppress(OSError):
             cookie_file.unlink()
-    session.headers.pop("eCrewHeader", None)
-    session.headers.pop("ecrewheader", None)
-    if hasattr(session, "ecrew_session_id"):
-        session.ecrew_session_id = ""
+    if not session_id or session_id == get_session_id(session):
+        session.headers.pop("eCrewHeader", None)
+        session.headers.pop("ecrewheader", None)
+        if hasattr(session, "ecrew_session_id"):
+            session.ecrew_session_id = ""
 
 
 def login(
@@ -243,6 +296,7 @@ def login(
     password: str,
     base_url: str | None = None,
     cookie_file: Path | None = None,
+    conflict_backoff: Sequence[int] = CONFLICT_BACKOFF_SECONDS,
 ) -> str:
     """Log into eCrew. Returns the session id (eCrewHeader UUID).
 
@@ -251,7 +305,40 @@ def login(
 
     ``base_url`` defaults to the configured value (resolved lazily, so a local
     .env is honoured) rather than a module constant captured at import.
+
+    A concurrent session (the portal allows only one) is retried with the
+    ``conflict_backoff`` delays, releasing the stale lock via LogoutP first.
+    ``ConcurrentSessionError`` is raised once the schedule is exhausted.
     """
+    for index in range(len(conflict_backoff) + 1):
+        try:
+            return _login_once(session, username, password, base_url, cookie_file)
+        except ConcurrentSessionError as exc:
+            if index >= len(conflict_backoff):
+                raise
+            stale_session_id = get_session_id(session)
+            delay = max(conflict_backoff[index], min(exc.retry_after, conflict_backoff[-1]))
+            if stale_session_id:
+                logout(session, base_url=base_url, session_id=stale_session_id)
+            logout(session, base_url=base_url, cookie_file=cookie_file)
+            logger.warning(
+                "eCrew reports a concurrent session (%s); waiting %ds before retry %d/%d",
+                exc,
+                delay,
+                index + 2,
+                len(conflict_backoff) + 1,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def _login_once(
+    session: requests.Session,
+    username: str,
+    password: str,
+    base_url: str | None = None,
+    cookie_file: Path | None = None,
+) -> str:
     base_url = (base_url or config.base_url()).rstrip("/")
 
     # 1. Load the login page and capture tokens.
@@ -265,8 +352,6 @@ def login(
     }
     login_page = session.get(base_url, headers=login_headers, timeout=TIMEOUT)
     if login_page.status_code in (502, 503, 504, 522):
-        import time
-
         time.sleep(2)
         login_page = session.get(base_url, headers=login_headers, timeout=TIMEOUT)
 
@@ -308,6 +393,12 @@ def login(
     url = f"{base_url}/Login/{login_token}"
     resp = session.post(url, data=json.dumps(payload), headers=headers, timeout=TIMEOUT)
 
+    if is_concurrent_session(resp.status_code, resp.text or ""):
+        raise ConcurrentSessionError(
+            "Another active session is currently open under your account. "
+            "Log out of eCrew (browser or phone app) and retry.",
+            retry_after=retry_after_seconds(resp),
+        )
     if resp.status_code != 200:
         raise AuthError(f"Login POST returned HTTP {resp.status_code}")
 
