@@ -1,101 +1,110 @@
 """Regression test: a successful eCrew HTML page must NOT look like a session conflict.
 
-Ground truth: every eCrew page (login, Dashboard, HomeIndex) embeds the literal
-strings "Another active session" and "Session has now been terminated" in its own
-inline JS. A bare substring match therefore reported a conflict on every
-successful sync, released the freshly established session and finally surfaced
+Every eCrew page (login, Dashboard, HomeIndex) embeds the literal strings
+"Another active session" and "Session has now been terminated" in its own inline
+JS, plus "Invalid credentials". A conflict detector that greps a response body
+for that wording therefore reports a conflict on every *successful* sync: the app
+releases the session it just established, retries, and finally surfaces
 "Une autre session eCrew est active sur votre compte".
 
-The captured live login page is used as the fixture.
+``tests/fixtures/portal_page_with_session_strings.html`` is a trimmed capture of
+that page (the live one also carries a UTF-8 BOM, which the fixture reproduces).
+``tests/fixtures/sample_roster.html`` stands in for a successful HomeIndex body.
 """
 
 import json
 import pathlib
-import urllib.request
+
+import pytest
 
 from backend import auth, fetch
 
-LIVE_PAGE = pathlib.Path(
-    r"C:\Users\PC\AppData\Local\Temp\opencode\loginpage.html"
-)
-HAR = pathlib.Path(r"C:\Users\PC\Downloads\ecrew.airalgerie.dz.har")
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+PORTAL_PAGE = FIXTURES / "portal_page_with_session_strings.html"
+ROSTER_PAGE = FIXTURES / "sample_roster.html"
+REFERENCE_HAR = pathlib.Path(r"C:\Users\PC\Downloads\ecrew.airalgerie.dz.har")
 
 
-def _live_login_page() -> str:
-    if LIVE_PAGE.exists():
-        return LIVE_PAGE.read_text(encoding="utf-8", errors="replace")
-    req = urllib.request.Request(
-        "https://ecrew.airalgerie.dz/eCrew",
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=25) as resp:  # noqa: S310
-        return resp.read().decode("utf-8", "replace")
-
-
-def _captured_homeindex() -> str:
-    har = json.loads(HAR.read_text(encoding="utf-8"))
-    for entry in har["log"]["entries"]:
-        if "/Dashboard/HomeIndex" in entry["request"]["url"]:
-            return entry["response"]["content"].get("text", "") or ""
-    raise AssertionError("HomeIndex not present in the reference HAR")
+def _bom(text: str) -> str:
+    return "\ufeff" + text
 
 
 def test_fixture_really_contains_the_poison_strings():
-    page = _live_login_page().lower()
-    assert "another active session" in page, "portal no longer ships the string; re-verify"
+    page = PORTAL_PAGE.read_text(encoding="utf-8").lower()
+    assert "another active session" in page, "fixture no longer reproduces the portal"
     assert "session has now been terminated" in page
-    assert "error_message" not in page, "if this changed, is_error_payload's guard needs review"
+    assert "invalid credentials" in page
+    assert "error_message" not in page, "portal pages do not carry the JSON error marker"
 
 
-def test_live_portal_page_is_not_a_conflict():
-    page = _live_login_page()
+@pytest.mark.parametrize("prefix", ["", "\ufeff"])
+@pytest.mark.parametrize("status", [200, 400])
+def test_portal_page_is_never_a_conflict(prefix, status):
+    page = prefix + PORTAL_PAGE.read_text(encoding="utf-8")
     assert not auth.is_error_payload(page)
-    assert not auth.is_concurrent_session(200, page)
-    assert not auth.is_concurrent_session(400, page)
+    assert not auth.is_concurrent_session(status, page)
 
 
-def test_captured_homeindex_is_not_a_conflict():
-    home = _captured_homeindex()
-    assert home.strip(), "HAR HomeIndex body missing"
-    assert not auth.is_error_payload(home)
-    assert not auth.is_concurrent_session(200, home)
-    assert not auth.is_concurrent_session(400, home)
+@pytest.mark.parametrize("status", [200, 400])
+def test_roster_fragment_is_never_a_conflict(status):
+    assert not auth.is_error_payload(ROSTER_PAGE.read_text(encoding="utf-8"))
+    assert not auth.is_concurrent_session(status, ROSTER_PAGE.read_text(encoding="utf-8"))
 
 
-def test_check_for_errors_does_not_raise_on_a_real_dashboard_page():
+def test_check_for_errors_accepts_a_real_dashboard_page():
     # _check_for_errors only ever sees Dashboard/HomeIndex/GetMenu bodies, never
     # the login page (which legitimately trips the "looks like a login page" check).
-    fetch._check_for_errors(_captured_homeindex())
+    fetch._check_for_errors(ROSTER_PAGE.read_text(encoding="utf-8"))
 
 
 def test_check_for_errors_still_raises_on_a_real_conflict_payload():
     payload = json.dumps(
         {"error_message": "Another active session is currently open under your account."}
     )
-    try:
+    with pytest.raises(auth.ConcurrentSessionError):
         fetch._check_for_errors(payload)
-    except auth.ConcurrentSessionError:
-        return
-    raise AssertionError("a genuine conflict payload must still raise")
 
 
-def test_bare_json_conflict_is_detected():
-    assert auth.is_concurrent_session(400, '{"error_message":"Another active session is currently open."}')
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"error_message":"Another active session is currently open under your account."}',
+        '{"error_message":"Session has now been terminated for you."}',
+        '{"error_message":"Une autre session eCrew est active sur votre compte."}',
+        '{"responsedata":"Another active session"}',
+    ],
+)
+def test_genuine_conflict_payloads_are_detected(body):
+    assert auth.is_error_payload(body)
+    assert auth.is_concurrent_session(400, body)
 
 
-def test_french_conflict_wording_is_detected():
-    assert auth.is_concurrent_session(400, '{"error_message":"Une autre session eCrew est active."}')
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (200, ""),
+        (200, "var events = [];"),
+        (404, "not found"),
+        (500, "<html><body>Another active session</body></html>"),
+        # The wording alone, outside an error payload, is not a conflict.
+        (200, "Another active session is currently open under your account."),
+        (401, "session expired"),
+    ],
+)
+def test_non_payload_bodies_are_not_conflicts(status, body):
+    assert not auth.is_concurrent_session(status, body)
 
 
-def test_login_does_not_report_conflict_on_html_error_page():
-    html = "<!DOCTYPE html><html><body>Another active session</body></html>"
-    assert not auth.is_concurrent_session(400, html)
-
-
-def test_empty_and_plain_bodies_are_not_conflicts():
-    assert not auth.is_concurrent_session(400, "")
-    assert not auth.is_concurrent_session(400, "var events = [];")
-    assert not auth.is_error_payload("var events = [];")
+@pytest.mark.skipif(not REFERENCE_HAR.exists(), reason="reference HAR not available")
+@pytest.mark.parametrize("status", [200, 400])
+def test_captured_homeindex_from_reference_har_is_not_a_conflict(status):
+    har = json.loads(REFERENCE_HAR.read_text(encoding="utf-8"))
+    bodies = [
+        entry["response"]["content"].get("text", "") or ""
+        for entry in har["log"]["entries"]
+        if "/Dashboard/HomeIndex" in entry["request"]["url"]
+    ]
+    assert bodies, "HomeIndex missing from the reference HAR"
+    for body in bodies:
+        assert not auth.is_concurrent_session(status, body)
+        fetch._check_for_errors(body)
