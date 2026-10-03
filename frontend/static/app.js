@@ -1680,39 +1680,57 @@ async function openCrewModal(entry) {
     if (el.crewBody) el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Chargement de l’équipage…</div>';
     el.modalCrew.classList.remove('hidden');
 
-    const eventId = eventIdOf(entry);
-    if (!eventId) {
-        if (el.crewBody) {
-            el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Numéro d’événement indisponible pour ce vol. Resynchronisez le planning.</div>';
-        }
-        return;
-    }
-
     const creds = getCredentials();
-    if (!creds.username || !creds.password) {
-        openSettingsModal();
-        if (el.crewBody) {
-            el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Matricule et mot de passe requis dans les paramètres.</div>';
+    const serverUp = await checkPythonServer();
+
+    let duty = null;
+    if (serverUp) {
+        // Serveur disponible : il parle a eCrew depuis la machine, donc pas de
+        // probleme CORS (le portail n'autorise que sa propre origine). Le vol est
+        // resolu cote serveur depuis le planning synchronise.
+        if (el.crewBody) el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Interrogation du portail eCrew…</div>';
+        try {
+            duty = await fetchJSON(`${API}/crew/${encodeURIComponent(String(flightNumber || '').trim())}`);
+        } catch (err) {
+            if (el.crewBody) {
+                el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--airalgerie-red);">${escHtml(err.message || String(err))}</div>`;
+            }
+            return;
         }
-        return;
+    } else {
+        const eventId = eventIdOf(entry);
+        if (!eventId) {
+            if (el.crewBody) {
+                el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Numéro d’événement indisponible pour ce vol. Resynchronisez le planning.</div>';
+            }
+            return;
+        }
+        if (!creds.username || !creds.password) {
+            openSettingsModal();
+            if (el.crewBody) {
+                el.crewBody.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text-muted);">Matricule et mot de passe requis dans les paramètres.</div>';
+            }
+            return;
+        }
+        try {
+            duty = await window.EcrewCore.fetchDutyCrew(
+                creds.username,
+                creds.password,
+                eventId,
+                'A',
+                '2',
+                undefined,
+                (msg) => { if (el.crewBody) el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--text-muted);">${escHtml(msg)}</div>`; }
+            );
+        } catch (err) {
+            if (el.crewBody) {
+                el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--airalgerie-red);">${escHtml(err.message || String(err))}</div>`;
+            }
+            return;
+        }
     }
 
-    try {
-        const duty = await window.EcrewCore.fetchDutyCrew(
-            creds.username,
-            creds.password,
-            eventId,
-            'A',
-            '2',
-            undefined,
-            (msg) => { if (el.crewBody) el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--text-muted);">${escHtml(msg)}</div>`; }
-        );
-        if (el.crewBody) el.crewBody.innerHTML = renderCrewBody(duty, entry, creds.username);
-    } catch (err) {
-        if (el.crewBody) {
-            el.crewBody.innerHTML = `<div style="text-align:center;padding:18px;color:var(--airalgerie-red);">${escHtml(err.message || String(err))}</div>`;
-        }
-    }
+    if (el.crewBody) el.crewBody.innerHTML = renderCrewBody(duty, entry, creds.username);
 }
 
 function closeCrewModal() {

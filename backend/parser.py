@@ -396,6 +396,17 @@ def _event_to_entry(ev: dict) -> DutyEntry | None:
         etype_raw = css.replace("_event", "").replace("_published", "")
     duty_type = _norm_duty_type(etype_raw)
 
+    # The portal types some flights "Default" instead of "Flight". Their event id
+    # ("35739on2026-07-3102:15:00_17013_17010_137979179576_135_17013") carries a
+    # non-zero CRRoute, where hotels have 0: the only reliable way to keep a real
+    # flight out of the "other" bucket.
+    if duty_type == "other":
+        eid = _clean(_get(ev, "id"))
+        if eid:
+            cr_route = next((s for s in eid.split("_")[1:] if re.fullmatch(r"\d{6,}", s)), None)
+            if cr_route and cr_route != "0":
+                duty_type = "flight"
+
     entry = DutyEntry(
         date=date,
         duty_type=duty_type,
@@ -405,21 +416,28 @@ def _event_to_entry(ev: dict) -> DutyEntry | None:
         raw=json.dumps(ev, ensure_ascii=False, separators=(",", ":")),
     )
 
-    # Flight number: prefer explicit field, then event id's last segment,
-    # then a label looking like AH1234.
+    # Flight number. eCrew uses bare numbers ("2700"), no airline prefix, and the
+    # last event-id segment is a date key ("17079") - not the flight. The label is
+    # "2700\r\nALG-YUL": the number is the first token of the first line.
     flt = _clean(_get(ev, "flight_no", "flt_no", "flt", "fnum", "pairing"))
     if not flt:
         eid = _clean(_get(ev, "id"))
         if eid:
-            tail = eid.split("_")[-1]
-            if re.search(r"[A-Z]{2}\d+", tail):
-                flt = tail
+            for segment in reversed(eid.split("_")):
+                if re.fullmatch(r"[A-Z]{2}\d{3,4}", segment):
+                    flt = segment
+                    break
     if not flt:
         text = _clean(_get(ev, "text", "title"))
         if text:
-            fm = re.search(r"\b([A-Z]{2}\d{3,4})\b", text)
-            if fm:
-                flt = fm.group(1)
+            first_line = re.split(r"[\r\n]+", text)[0]
+            bare = re.match(r"^\s*(\d{3,4})\b", first_line)
+            if bare:
+                flt = bare.group(1)
+            else:
+                pm = re.search(r"\b([A-Z]{2}\d{3,4})\b", first_line)
+                if pm:
+                    flt = pm.group(1)
     if flt:
         entry.flight_number = flt
 
