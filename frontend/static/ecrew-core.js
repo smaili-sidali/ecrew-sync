@@ -477,14 +477,20 @@
             if (!sessionId) return;
             try {
                 await request({
-                    url: `${APP_BASE}/Dashboard/LogoutP?eCrewHeader=${encodeURIComponent(sessionId)}&sl=xslx`,
+                    url: `${APP_BASE}/Dashboard/LogoutP?sl=xslx&eCrewHeader=${encodeURIComponent(sessionId)}`,
                     method: 'GET',
                     headers: {
+                        "eCrewHeader": sessionId,
+                        "ecrewheader": sessionId,
                         "Referer": `${APP_BASE}/Dashboard`,
                         "Accept": "*/*"
                     }
                 });
             } catch (_) {}
+            // Toujours purger les cookies in-memory résiduels
+            for (const k of Object.keys(cookieJar)) {
+                delete cookieJar[k];
+            }
         },
 
         // Flux complet de synchronisation directe avec eCrew
@@ -492,21 +498,27 @@
             const cleanBase = baseUrl.replace(/\/+$/, '');
             const report = (msg) => { if (typeof onProgress === 'function') onProgress(msg); };
 
+            // Réinitialisation des cookies au départ
+            for (const k of Object.keys(cookieJar)) {
+                delete cookieJar[k];
+            }
+
             function isSessionConflict(status, text) {
                 if (!text) return false;
                 const lower = text.toLowerCase();
                 return (
                     lower.includes("another active session") ||
                     lower.includes("session has now been terminated") ||
-                    (status === 400 && lower.includes("error_message"))
+                    (status === 400 && (lower.includes("error_message") || lower.includes("session")))
                 );
             }
 
             const self = this;
-            async function runAttempt(isRetry = false) {
+            async function runAttempt(attemptNumber = 1) {
                 let sessionId = null;
+                let conflictDetected = false;
                 try {
-                    report(isRetry ? "Nouvelle tentative eCrew…" : "Connexion au portail eCrew…");
+                    report(attemptNumber > 1 ? `Tentative ${attemptNumber}/3 de synchronisation…` : "Connexion au portail eCrew…");
 
                     // 1. Obtenir la page de connexion
                     let pageRes = await request({
@@ -560,6 +572,7 @@
                         headers: {
                             "Content-Type": "application/json",
                             "eCrewHeader": sessionId,
+                            "ecrewheader": sessionId,
                             "RequestVerificationToken": token,
                             "Origin": ORIGIN,
                             "Referer": cleanBase,
@@ -577,13 +590,17 @@
                         throw new Error("Matricule ou mot de passe eCrew incorrect.");
                     }
                     if (isSessionConflict(postRes.status, postRes.text)) {
+                        conflictDetected = true;
                         await self.releaseSession(sessionId);
-                        if (!isRetry) {
-                            report("Session précédente détectée, libération…");
-                            await new Promise(r => setTimeout(r, 6000));
-                            return await runAttempt(true);
+                        if (attemptNumber < 3) {
+                            const waitSec = attemptNumber === 1 ? 5 : 8;
+                            for (let s = waitSec; s > 0; s--) {
+                                report(`Session active détectée, libération du verrou serveur (${s}s)…`);
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            return await runAttempt(attemptNumber + 1);
                         }
-                        throw new Error("Une autre session eCrew est déjà ouverte sur votre compte. Veuillez vous déconnecter d'eCrew sur vos autres appareils et réappuyer sur Synchroniser.");
+                        throw new Error("Une autre session eCrew est active sur votre compte. Si vous êtes connecté sur votre ordinateur, déconnectez-vous du portail eCrew. Sinon, patientez 60 secondes que le serveur libère l'accès puis réappuyez sur Synchroniser.");
                     }
 
                     // 3. Charger le shell Dashboard
@@ -595,6 +612,8 @@
                             url: dashUrl,
                             method: 'GET',
                             headers: {
+                                "eCrewHeader": sessionId,
+                                "ecrewheader": sessionId,
                                 "Referer": cleanBase,
                                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                             },
@@ -613,13 +632,14 @@
                     const homeUrl = `${APP_BASE}/Dashboard/HomeIndex?eCrewHeader=${encodeURIComponent(sessionId)}`;
                     let rosterHtml = "";
                     let homeStatus = 0;
-                    let conflictDetected = false;
 
                     try {
                         const homeRes = await request({
                             url: homeUrl,
                             method: 'GET',
                             headers: {
+                                "eCrewHeader": sessionId,
+                                "ecrewheader": sessionId,
                                 "Referer": `${APP_BASE}/Dashboard`,
                                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
                             },
@@ -645,12 +665,15 @@
 
                     if (conflictDetected) {
                         await self.releaseSession(sessionId);
-                        if (!isRetry) {
-                            report("Session eCrew occupée, réinitialisation automatique…");
-                            await new Promise(r => setTimeout(r, 6000));
-                            return await runAttempt(true);
+                        if (attemptNumber < 3) {
+                            const waitSec = attemptNumber === 1 ? 5 : 8;
+                            for (let s = waitSec; s > 0; s--) {
+                                report(`Session précédente occupée, libération automatique (${s}s)…`);
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            return await runAttempt(attemptNumber + 1);
                         }
-                        throw new Error("Une autre session eCrew est active sur votre compte (dans votre navigateur ou sur un autre appareil). Déconnectez-vous d'eCrew sur votre ordinateur, attendez 10 secondes et réappuyez sur Synchroniser.");
+                        throw new Error("Une autre session eCrew est active sur votre compte. Si vous êtes connecté sur votre ordinateur, déconnectez-vous d'eCrew. Sinon, patientez 60 secondes que le serveur libère l'accès puis réappuyez sur Synchroniser.");
                     }
 
                     // 5. Fallback Menu A1 ("My Schedule") si HomeIndex ne contient pas de planning
@@ -661,6 +684,7 @@
                             headers: {
                                 "Content-Type": "application/json",
                                 "eCrewHeader": sessionId,
+                                "ecrewheader": sessionId,
                                 "RequestVerificationToken": activeToken,
                                 "Origin": ORIGIN,
                                 "Referer": `${APP_BASE}/Dashboard`,
@@ -673,13 +697,17 @@
 
                         const menuText = menuRes.text || "";
                         if (isSessionConflict(menuRes.status, menuText)) {
+                            conflictDetected = true;
                             await self.releaseSession(sessionId);
-                            if (!isRetry) {
-                                report("Session occupée, libération automatique…");
-                                await new Promise(r => setTimeout(r, 6000));
-                                return await runAttempt(true);
+                            if (attemptNumber < 3) {
+                                const waitSec = attemptNumber === 1 ? 5 : 8;
+                                for (let s = waitSec; s > 0; s--) {
+                                    report(`Session occupée, libération en cours (${s}s)…`);
+                                    await new Promise(r => setTimeout(r, 1000));
+                                }
+                                return await runAttempt(attemptNumber + 1);
                             }
-                            throw new Error("Une autre session eCrew est restée active sur votre compte. Veuillez vous déconnecter d'eCrew et réappuyer sur Synchroniser.");
+                            throw new Error("Une autre session eCrew est active sur votre compte. Veuillez vous déconnecter du portail eCrew sur votre navigateur, patientez 60 secondes et réappuyez sur Synchroniser.");
                         }
 
                         if (menuRes.status === 200 && menuText) {
@@ -702,13 +730,13 @@
                     };
                 } finally {
                     // Toujours libérer la session AIMS proprement pour les futures synchronisations
-                    if (sessionId) {
+                    if (sessionId && !conflictDetected) {
                         await self.releaseSession(sessionId);
                     }
                 }
             }
 
-            return await runAttempt(false);
+            return await runAttempt(1);
         }
     };
 }));
