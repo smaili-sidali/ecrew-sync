@@ -550,15 +550,39 @@
             // Réinitialisation des cookies au départ
             clearCookies();
 
+            function isHtmlDocument(text) {
+                return /^(?:\uFEFF)?\s*(<!doctype\s+html|<html[\s>])/i.test(text);
+            }
+
             function isSessionConflict(status, text) {
                 if (!text) return false;
-                const lower = text.toLowerCase();
+                const trimmed = text.trim();
+                if (!trimmed || isHtmlDocument(trimmed)) return false;
+
+                // Every eCrew page ships the strings "Another active session" and
+                // "Session has now been terminated" inside its own inline JS, so a
+                // bare substring match reports a conflict on every successful
+                // HomeIndex / Dashboard response. Require an actual error payload
+                // marker before trusting the wording.
+                const lower = trimmed.toLowerCase();
+                const isErrorPayload =
+                    lower.includes("error_message") ||
+                    lower.includes("responsedata") ||
+                    trimmed.startsWith("{");
+                if (!isErrorPayload) return false;
+
                 if (lower.includes("another active session")) return true;
                 if (lower.includes("session has now been terminated")) return true;
                 if (lower.includes("une autre session")) return true;
                 if (lower.includes("session ecrew est active")) return true;
                 if ((status === 400 || status === 401 || status === 403) && lower.includes("session")) return true;
                 return false;
+            }
+
+            function errorPayloadText(text) {
+                if (!text) return '';
+                const trimmed = text.trim();
+                return isHtmlDocument(trimmed) ? '' : trimmed;
             }
 
             const self = this;
@@ -663,7 +687,8 @@
                     if (postRes.status !== 200) {
                         throw new Error("Échec de connexion au portail eCrew (HTTP " + postRes.status + ").");
                     }
-                    if (postRes.text.includes("Invalid Credentials") || postRes.text.includes("Identifiants")) {
+                    const postPayload = errorPayloadText(postRes.text);
+                    if (postPayload.includes("Invalid Credentials") || postPayload.includes("Identifiants")) {
                         throw new Error("Matricule ou mot de passe eCrew incorrect.");
                     }
 

@@ -48,10 +48,10 @@ def _fake_session(post_statuses):
     "status,text",
     [
         (200, CONFLICT_BODY),
-        (200, "Session has now been terminated for you."),
-        (200, "Une autre session eCrew est active sur votre compte."),
-        (401, "session expired"),
-        (403, "Another active session"),
+        (400, '{"error_message":"Session has now been terminated for you."}'),
+        (400, '{"error_message":"Une autre session eCrew est active sur votre compte."}'),
+        (401, '{"error_message":"session expired"}'),
+        (403, '{"error_message":"Another active session"}'),
     ],
 )
 def test_is_concurrent_session_detects_conflict(status, text):
@@ -60,7 +60,15 @@ def test_is_concurrent_session_detects_conflict(status, text):
 
 @pytest.mark.parametrize(
     "status,text",
-    [(200, "var events = [];"), (500, ""), (200, ""), (404, "not found")],
+    [
+        (200, "var events = [];"),
+        (500, ""),
+        (200, ""),
+        (404, "not found"),
+        # The wording alone, outside an error payload, is not a conflict.
+        (200, "Another active session is currently open under your account."),
+        (401, "session expired"),
+    ],
 )
 def test_is_concurrent_session_ignores_normal_responses(status, text):
     assert not auth.is_concurrent_session(status, text)

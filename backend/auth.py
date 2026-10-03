@@ -108,11 +108,36 @@ class ConcurrentSessionError(AuthError):
 CONFLICT_BACKOFF_SECONDS = (15, 30, 60)
 
 
+_RE_HTML_DOCUMENT = re.compile(
+    r"^(?:\ufeff)?\s*(?:<!doctype\s+html|<html[\s>])", re.IGNORECASE
+)
+
+
+def is_error_payload(text: str) -> bool:
+    """True when a response body is a machine-readable error, not a page.
+
+    Every eCrew page ships the strings "Another active session" and "Session has
+    now been terminated" inside its own inline JS, so matching on the wording
+    alone reports a conflict on every successful Dashboard / HomeIndex response.
+    A real conflict arrives as a small JSON payload carrying one of the portal's
+    error markers.
+    """
+    stripped = (text or "").strip()
+    if not stripped or _RE_HTML_DOCUMENT.match(stripped):
+        return False
+    lowered = stripped.lower()
+    return (
+        "error_message" in lowered
+        or "responsedata" in lowered
+        or stripped.startswith("{")
+    )
+
+
 def is_concurrent_session(status_code: int, text: str) -> bool:
     """True when a response body/status means "another session already active"."""
-    lower = (text or "").lower()
-    if not lower:
+    if not is_error_payload(text):
         return False
+    lower = (text or "").lower()
     if "another active session" in lower:
         return True
     if "session has now been terminated" in lower:
