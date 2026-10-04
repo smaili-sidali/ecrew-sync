@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend import leave, training, weather
 from server.api import app
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def no_network(monkeypatch):
+    """Make every ``requests.get`` in backend.weather raise.
+
+    ``/api/weather`` calls aviationweather.gov live. Without this the suite
+    depends on NOAA being up and on the network being available, so a 5 s
+    timeout would surface as a random failure — which is exactly how the ``%e``
+    logging bug below stayed hidden.
+    """
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("network disabled in tests")
+
+    monkeypatch.setattr(weather.requests, "get", _boom)
+    return _boom
 
 
 def test_weather_iata_resolution():
@@ -55,7 +73,40 @@ def test_leave_data():
     assert "bidding_requests" in data
 
 
-def test_api_enriched_endpoints():
+def test_weather_survives_a_dead_upstream(no_network):
+    """A NOAA timeout must degrade gracefully, never raise.
+
+    Regression: the METAR handler logged with ``%e``, which is not a logging
+    specifier. logging then raised TypeError *inside* the except block, turning
+    a handled network failure into a 500 — and it only showed up when NOAA was
+    slow. This asserts the endpoint still answers with the fallback payload.
+    """
+    res = client.get("/api/weather/ALG")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["icao"] == "DAAG"
+    # The documented fallback shape, not an exception.
+    assert "non disponible" in body["metar"]["raw"]
+
+
+def test_weather_decodes_a_real_metar(monkeypatch):
+    """With a stubbed upstream, decoding must use the live payload."""
+
+    class _Resp:
+        status_code = 200
+        text = "METAR DAAG 020330Z 06002KT 9999 FEW010 SCT100 24/19 Q1019"
+
+        def json(self):
+            return [{"rawOb": self.text, "obsTime": "2026-08-02T03:30:00Z"}]
+
+    monkeypatch.setattr(weather.requests, "get", lambda *a, **k: _Resp())
+    body = client.get("/api/weather/ALG").json()
+    assert body["metar"]["flight_category"] == "VFR"
+    assert body["metar"]["qnh_hpa"] == 1019
+    assert body["metar"]["observed_at"] == "2026-08-02T03:30:00Z"
+
+
+def test_api_enriched_endpoints(no_network):
     res_stats = client.get("/api/stats")
     assert res_stats.status_code == 200
     assert "block_time" in res_stats.json()
@@ -96,7 +147,7 @@ def test_api_enriched_endpoints():
     assert airports["ALG"]["icao"] == "DAAG"
 
 
-def test_cli_enriched_commands(tmp_path, monkeypatch):
+def test_cli_enriched_commands(tmp_path, monkeypatch, no_network):
     from typer.testing import CliRunner
 
     from backend import store

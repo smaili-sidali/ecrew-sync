@@ -1,13 +1,13 @@
 {
   "name": "ecrew-sync",
-  "version": "1.0.0",
-  "description": "?<div align=\"center\">",
+  "version": "2.5.0",
+  "description": "Self-hosted Air Algérie eCrew roster: PWA, JSON API, .ics export and Android app",
   "main": "index.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test \"frontend/static/*.test.js\""
   },
   "repository": {
     "type": "git",

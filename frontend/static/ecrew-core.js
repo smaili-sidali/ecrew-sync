@@ -606,20 +606,64 @@
         return entry;
     }
 
+    // Keys that mark a dict as a DayPilot duty event (mirrors parser.py).
+    const EVENT_HINT_KEYS = ['start', 'end', 'type', 'id', 'text', 'resource', 'location'];
+    const DATE_RE = /\d{4}-\d{2}-\d{2}/;
+
+    /**
+     * Rank a candidate array by how many of its dicts actually look like a duty.
+     *
+     * Ranking by array length alone is fragile: a fragment can easily carry a
+     * LONGER array of something else (an airport list, a legend, crew ids), and
+     * length alone would hand the roster to the decoy. This is the same scoring
+     * the Python parser uses — see backend/parser.py::_roster_score — so the
+     * server and the standalone APK agree on which array is the roster.
+     *
+     * @returns {[number, number]} [duty-like count, total size]
+     */
+    function rosterScore(events) {
+        let dutyLike = 0;
+        for (const ev of events) {
+            if (!ev || typeof ev !== 'object' || Array.isArray(ev)) continue;
+            let hasDate = Boolean(ev.start || ev.start_time || ev.date);
+            if (!hasDate) hasDate = DATE_RE.test(String(ev.id || ''));
+            if (!hasDate) continue;
+            // A date alone is not enough: require at least one more event-ish
+            // key so a {"date": ..., "value": ...} stats array is not mistaken
+            // for the roster.
+            const extras = EVENT_HINT_KEYS.reduce(
+                (n, k) => n + (ev[k] !== undefined && ev[k] !== null ? 1 : 0), 0);
+            if (extras >= 2) dutyLike++;
+        }
+        return [dutyLike, events.length];
+    }
+
+    /** Lexicographic [a,b] vs [c,d] comparison. */
+    function scoreBetter(a, b) {
+        if (a[0] !== b[0]) return a[0] > b[0];
+        return a[1] > b[1];
+    }
+
     function parseRosterHtml(html) {
         const blocks = extractCandidateBlocks(html);
         let bestEvents = null;
-        let maxCount = 0;
+        let bestScore = [-1, -1];
 
         for (const b of blocks) {
-            if (Array.isArray(b.events) && b.events.length > maxCount) {
-                bestEvents = b.events;
-                maxCount = b.events.length;
+            const evs = b.events;
+            if (!Array.isArray(evs) || evs.length === 0) continue;
+            // Mixed-type arrays are never a duty list.
+            if (!evs.every((x) => x && typeof x === 'object' && !Array.isArray(x))) continue;
+            const score = rosterScore(evs);
+            if (scoreBetter(score, bestScore)) {
+                bestEvents = evs;
+                bestScore = score;
             }
         }
 
-        if (!bestEvents || bestEvents.length === 0) {
-            // Tentative de parsing table HTML si présent
+        // Only accept a block that actually contained recognisable duties;
+        // otherwise fall back to the <table> layout.
+        if (!bestEvents || bestScore[0] === 0) {
             return parseHtmlTableFallback(html);
         }
 
@@ -696,8 +740,12 @@
             lines.push(`UID:ecrew-${e.date}-${e.flight_number || e.duty_type}@ecrewsync.app`);
             lines.push(`DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`);
             if (allDay) {
+                // RFC 5545: DTEND is EXCLUSIVE. Emitting DTEND equal to DTSTART
+                // makes the event zero-length, so day-offs / training silently
+                // disappear from the calendar. An all-day event with no DTEND
+                // lasts exactly one day — which is what we want. This mirrors
+                // backend/export.py, which omits DTEND for the same reason.
                 lines.push(`DTSTART;VALUE=DATE:${dateStr}`);
-                lines.push(`DTEND;VALUE=DATE:${dateStr}`);
             } else {
                 lines.push(`DTSTART:${dtstart}`);
                 lines.push(`DTEND:${dtend}`);

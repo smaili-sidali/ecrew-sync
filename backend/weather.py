@@ -13,6 +13,8 @@ from typing import Any
 
 import requests
 
+from .config import app_version
+
 logger = logging.getLogger(__name__)
 
 # Exhaustive Air Algérie network IATA -> ICAO mapping (90+ airports)
@@ -218,7 +220,7 @@ def fetch_weather(code: str) -> dict[str, Any]:
     airport_info = get_airport_info(code)
 
     headers = {
-        "User-Agent": "eCrewSync/2.0 (Aviation Crew Companion)",
+        "User-Agent": f"eCrewSync/{app_version()} (Aviation Crew Companion)",
         "Accept": "*/*",
     }
 
@@ -238,7 +240,10 @@ def fetch_weather(code: str) -> dict[str, Any]:
                 metar_data = _decode_metar(raw)
                 metar_data["observed_at"] = item.get("obsTime") or item.get("reportTime")
     except Exception as e:
-        logger.warning("Could not fetch METAR for %s: %e", icao, e)
+        # %s, not %e: %e is not a logging specifier, so logging raises TypeError
+        # while formatting *this* message and the caller's graceful degradation
+        # turns into a 500.
+        logger.warning("Could not fetch METAR for %s: %s", icao, e)
 
     # Fallback to plain text feed if json endpoint fails
     if not metar_data:
