@@ -20,6 +20,12 @@ data/
 # `git add -A` (which the README recommends) publishes them to a public repo.
 roster.json
 session_state.json
+# Personal crew data written next to the roster store by backend/leave.py and
+# backend/training.py: leave balance/history/bids, seniority, and medical +
+# licence expiry dates. Both modules seed themselves from the defaults in code
+# when the file is missing, so there is no reason to track them.
+leave.json
+qualifications.json
 *.ics
 *.tmp
 *.apk

@@ -1,6 +1,6 @@
-?<div align="center">
+<div align="center">
 
-# ✈️? eCrew Sync
+# ✈️ eCrew Sync
 
 **Your Air Algérie roster, wherever you are.**
 
@@ -10,15 +10,15 @@ A self-hosted tool that logs into the **eCrew portal**, pulls your duty roster, 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.112+-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![PWA](https://img.shields.io/badge/PWA-ready-5A0FC8?style=for-the-badge)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Android](https://img.shields.io/badge/Android-TWA%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-142%20passing-2ea44f?style=for-the-badge)
-![CI](https://img.shields.io/badge/CI-142%20tests%20+%20ruff-2ea44f?style=for-the-badge)
+![Android](https://img.shields.io/badge/Android-Capacitor%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-231%20python%20%2B%2031%20JS-2ea44f?style=for-the-badge)
+![CI](https://img.shields.io/badge/CI-pytest%20%2B%20node%20%2B%20ruff%20%2B%20mypy-2ea44f?style=for-the-badge)
 
 </div>
 
 ---
 
-## ⚠️? Status: the portal contract is still unverified
+## ⚠️ Status: the portal contract is still unverified
 
 The reverse-engineering in [`NOTES.md`](NOTES.md) is solid, but **the roster
 payload shape has never been confirmed against the live portal.** Every test in
@@ -61,9 +61,14 @@ suite runs against reality.
 | 🩺 **Contract canary** | Classifies portal drift instead of silently serving a stale roster |
 | 🔔 **Webhook alerts** | Told when your roster changes, a sync fails, or the portal changes shape |
 | 🔐 **Optional API token** | One env var locks down every endpoint (constant-time compare) |
-| 📡 **JSON API** | `health`, `roster`, `sync`, `contract`, `calendar.ics`, `export.ics` |
+| 📡 **JSON API** | 14 endpoints — roster, sync, calendar, stats, crew, weather |
 | 🧾 **Structured logs** | One JSON object per line, ready for a log shipper |
-| 📦 **Android APK** | Trusted Web Activity build (Bubblewrap) — a real launcher app, ~2 MB |
+| 📦 **Android APK** | Capacitor standalone build — a real launcher app, ~4 MB |
+| 🌦 **Live METAR/TAF weather** | Official NOAA feed, decoded, for any of the 90+ airports in the network |
+| 🛬 **Real crew composition** | Cockpit + cabin for a given flight, read from the portal's DutyDetails view |
+| 🛏 **Layover logistics** | Hotel, address, contact and map link per layover |
+| 💶 **Per diem & FTL stats** | Block hours, flight-time limits, monthly allowances |
+| 📋 **Licences & leave** | Medical/check expiry countdowns, leave balance and bidding history |
 | 🐳 **One-command deploy** | Docker + Caddy HTTPS, or Render |
 
 ---
@@ -92,6 +97,13 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 | `python cli\main.py sync` | One-shot login → fetch → parse → store, reporting changes |
 | `python cli\main.py show --month 2026-08` | Print the roster to the console |
 | `python cli\main.py export-ics out.ics` | Calendar export (`.ics`) |
+| `python cli\main.py stats` | Block hours, flight time and FTL compliance |
+| `python cli\main.py layovers` | Hotels, addresses and contacts for your layovers |
+| `python cli\main.py perdiem` | Monthly per-diem / mission allowance totals |
+| `python cli\main.py licenses` | Licence & medical expiry countdowns |
+| `python cli\main.py leave` | Leave balance, history and bidding requests |
+| `python cli\main.py crew <flight>` | Real cockpit + cabin crew for one of your flights |
+| `python cli\main.py weather ALG` | Live METAR/TAF, decoded |
 | `python cli\main.py token` | Generate a strong random `ECREW_API_TOKEN` |
 | `python cli\main.py web` | Start the PWA server |
 
@@ -116,7 +128,7 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
                      └───────────┘  └────────────────────────┘
 ```
 
-> ℹ️? The portal authenticates with **no cookies at all** — a client-generated `eCrewHeader` UUID plus a rotating `RequestVerificationToken`. Full reverse-engineering notes live in [`NOTES.md`](NOTES.md).
+> ℹ️ The portal authenticates with **no cookies at all** — a client-generated `eCrewHeader` UUID plus a rotating `RequestVerificationToken`. Full reverse-engineering notes live in [`NOTES.md`](NOTES.md).
 
 ---
 
@@ -130,11 +142,22 @@ Open `http://localhost:8000` on your phone's browser → **Add to Home Screen** 
 | `/api/calendar.ics` | GET | **Subscribable** calendar feed (stays current) |
 | `/api/export.ics` | GET | One-shot `.ics` download |
 | `/api/contract` | GET | Portal contract canary report (no token needed) |
+| `/api/stats?month=` | GET | Block hours, flight time, FTL limits |
+| `/api/layovers` | GET | Hotels, addresses, contacts, map links |
+| `/api/perdiem?month=` | GET | Per-diem / mission allowance totals |
+| `/api/licenses` | GET | Licence & medical expiry countdowns |
+| `/api/leave` | GET | Leave balance, history, bidding requests |
+| `/api/crew/{flight}` | GET | Real cockpit + cabin crew for one flight |
+| `/api/weather/{code}` | GET | Live METAR/TAF for an IATA code (e.g. `ALG`) |
+| `/api/airports` | GET | The 90+ airports in the Air Algérie network |
 | `/` | GET | The PWA itself |
 
 > All routes except `/api/health` and `/api/contract` require
 > `ECREW_API_TOKEN` when it is set. Send `Authorization: Bearer <token>` or
 > `?token=<token>`.
+>
+> ⚠️ `/api/crew/{flight}` and `/api/weather/{code}` reach out to the portal and
+> to NOAA respectively. Keep the token set if you expose the service.
 
 ---
 
@@ -210,7 +233,7 @@ cd ecrew-sync
    `ECREW_USERNAME` / `ECREW_PASSWORD` (secrets).
 4. Done — HTTPS URL provided automatically.
 
-> ⚠️? `render.yaml` targets the **`starter`** plan, not `free`. Render's free tier
+> ⚠️ `render.yaml` targets the **`starter`** plan, not `free`. Render's free tier
 > has no persistent disk (so `roster.json` is lost on every deploy) and idles
 > out after a few minutes, meaning a 6-hourly background sync would never fire.
 > Switch `plan: free` and delete the `disk:` block if you only want on-demand
@@ -220,7 +243,7 @@ cd ecrew-sync
 roster to anyone who reaches the URL. Put it behind a private network, a VPN, or
 Caddy basic auth.
 
-### ⚙️? Manual (no Docker)
+### ⚙️ Manual (no Docker)
 
 ```bash
 pip install -r requirements.txt
@@ -232,80 +255,58 @@ python -m uvicorn server.api:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 📱 Android app (TWA / APK)
+## 📱 Android app (Capacitor)
 
-The PWA is installable, and can also be wrapped into a real Android APK as a
-**Trusted Web Activity** using Google's [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap).
-The app is ~2 MB, installs a normal launcher icon, and opens your hosted PWA
-with no browser chrome.
+The Android app is a **Capacitor** build — it ships the PWA as real assets
+inside the APK, so it syncs directly against the eCrew portal and works with
+no server of your own. The app is ~4 MB and installs as a normal launcher icon.
 
-### Prerequisites (once)
+> ℹ️ The app is **standalone**: `frontend/static/ecrew-core.js` re-implements the
+> login, the DayPilot parser and the store in the browser, using Capacitor's
+> native HTTP and cookie plugins (`CapacitorHttp` / `CapacitorCookies` are
+> enabled in `capacitor.config.json`). The Python backend is *not* involved.
 
-- A deployed HTTPS domain for the app (the PWA *must* be served over HTTPS).
-  Your Caddy/Render setup already provides this — install the PWA first as a
-  sanity check, then continue.
-- **JDK 17** (e.g. Adoptium Temurin or Android Studio's bundled JBR) and the
-  **Android SDK** (`bubblewrap` can download a JDK for you, but needs the SDK).
-- Node.js ≥ 18 (to run Bubblewrap).
-
-> ℹ️? The APK just wraps the website — it doesn't need the backend's parser.
-> Data comes from your server, which parses the roster fragment
-> (`backend/parser.py`) into `roster.json`. The parser targets the
-> reverse-engineered DayPilot contract in `NOTES.md`; run `python -m cli.main
-> login-test` once and diff `debug_roster_view.html` against
-> `tests/fixtures/sample_roster.html` to confirm the selectors match the live
-> portal before relying on it.
-
-### Generate the APK
+### Build the APK
 
 ```bash
-# 1. Install the CLI once
-npm install -g @bubblewrap/cli
-
-# 2. Generate the TWA project against your LIVE deployed manifest.
-#    Replace the URL with your real domain.
-npx @bubblewrap/cli init --manifest https://roster.example.com/manifest.json
-
-# 3. Tweak twa/twa-manifest.json if needed (packageId, name, colors).
-#    A starting template is committed at twa/twa-manifest.json.
-
-# 4. Build → produces twa/app/build/outputs/.../app-release.apk
-cd twa
-npx @bubblewrap/cli build
+npm install
+npx cap sync android
+cd android && ./gradlew assembleDebug
+# → android/app/build/outputs/apk/debug/app-debug.apk  (~4 MB)
 ```
 
-### Verify the app→website handshake (required, once per signing key)
+CI does this automatically on every push — see
+`.github/workflows/build-apk.yml`, which runs on Node 22 + JDK 21 and uploads
+`app-debug.apk` as a workflow artifact.
 
-TWA only shows web content when Android can verify the APK owns the origin:
+For a **release** build you need your own signing key; see the Android
+`build.gradle` signing config. Never commit a keystore (already gitignored).
 
-```bash
-cd ..   # repo root
-npx @bubblewrap/cli fingerprint list     # read SHA-256 of your signing key
-# Pair it with the site, then generate the verifier file:
-npx @bubblewrap/cli fingerprint add "release" <sha256-fingerprint> --manifest twa/twa-manifest.json
-cp <generated assetlinks.json> frontend/static/.well-known/assetlinks.json
-```
+### 🧾 Two parsers, so both are tested
 
-Then redeploy. The file is served at `/.well-known/assetlinks.json` (it is
-already wired in — see `frontend/static/.well-known/README.md`). Verify with:
+Because the app is standalone, the portal contract is parsed twice:
 
-```bash
-npx @bubblewrap/cli validate --location https://roster.example.com
-```
+| Path | Parser | Tests |
+|---|---|---|
+| Server / PWA | `backend/parser.py` | `tests/test_parser*.py` + the contract canary |
+| Android APK | `frontend/static/ecrew-core.js` | `frontend/static/ecrew-core.test.js` (`npm test`) |
 
-When validation passes, `twa/app/build/outputs/apk/release/app-release.apk` is
-a normal installable Android APK.
+Both score candidate arrays by *duty-likeness* rather than array length, so a
+longer decoy array (airports, legend) can't displace the real roster. If you
+change one parser, change the other — and run both suites.
 
-### 📝 TWA notes
+### 📝 Capacitor notes
 
-- The APK signs with `twa/android.keystore` — **never commit it** (already
-  gitignored). `assetlinks.json` is tied to that signing key; regenerate it
-  only if you create a new keystore.
-- `enableNotifications` is off: the roster syncs from the server; there is no
-  push. Pull-to-refresh or the Sync button fetch the latest store.
-- Debug APKs (signed with the default debug key) live under `app-debug.apk`
-  and will NOT pass the digital-asset-link verification until you follow the
-  steps above.
+- `CapacitorHttp` + `CapacitorCookies` are enabled because the portal uses
+  header-based session auth; the native HTTP client is what makes the session
+  and the `Another active session` recovery work inside the WebView.
+- Debug APKs are signed with the standard Android debug key, so they install
+  over each other but are not distributable as-is.
+- Built APKs land in `android/app/build/outputs/apk/`; `dist-apk/` holds
+  archived named builds and is gitignored.
+- The older **TWA/Bubblewrap** scaffold is still in `twa/` for reference, but it
+  is *not* the shipping pipeline — it only wrapped a hosted URL, which meant
+  the phone needed your server to be online.
 
 ---
 
@@ -313,9 +314,15 @@ a normal installable Android APK.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q          # 142 tests across 9 suites
+python -m pytest -q          # 231 tests across 14 suites
 ruff check backend server cli tests
+mypy                         # type check
+npm test                     # 31 tests for the standalone Android engine
 ```
+
+**Both suites are hermetic** — no test touches the network. Anything that would
+(weather, portal calls) is mocked, so a slow NOAA endpoint can't turn into a
+random red build.
 
 | Suite | Covers |
 |---|---|
@@ -328,6 +335,13 @@ ruff check backend server cli tests
 | `tests/test_contract.py` | Contract canary: each portal-drift failure mode
 | `tests/test_scheduler.py` | Drift protection, debounce, concurrency lock
 | `tests/test_notify.py` | Webhook delivery, failure isolation, JSON logs |
+| `tests/test_auth.py` | Header-session login, SHA-512, token rotation |
+| `tests/test_conflict_error_page.py` | The portal's "Another active session" HTML page |
+| `tests/test_session_conflict_detection.py` | Conflict vs. ordinary page discrimination |
+| `tests/test_duty_crew.py` | DutyDetails crew parsing |
+| `tests/test_enriched_modules.py` | Weather, layovers, per diem, licences, leave, stats |
+| `tests/test_version_consistency.py` | One version string across all manifests |
+| `frontend/static/ecrew-core.test.js` | The standalone JS engine: parser, tokens, ICS |
 
 Many of these exist because of bugs that were actually found and fixed —
 see [Known bugs fixed](#known-bugs-fixed) below.
@@ -344,23 +358,40 @@ real portal — that is the only test that proves the contract itself.
 
 ```
 ecrew-sync/
-├── backend/           # core logic: config, auth, fetch, parser, store, export
-│   ├── config.py      #   single source of truth for all env/path resolution
+├── backend/           # core logic
+│   ├── config.py      #   single source of truth for env, paths and version
 │   ├── auth.py        #   header-session login (SHA-512, token rotation)
 │   ├── fetch.py       #   roster fetch (GetMenu A1) + re-login on expiry
 │   ├── parser.py      #   DayPilot fragment → DutyEntry (+ table fallback)
 │   ├── store.py       #   atomic roster.json + change diffing
-│   └── export.py      #   .ics calendar generation (timezone-correct)
+│   ├── export.py      #   .ics calendar generation (timezone-correct)
+│   ├── contract.py    #   portal-drift canary
+│   ├── duty_details.py#   real crew composition from the portal
+│   ├── weather.py     #   METAR/TAF + the 90+ airport network map
+│   ├── layovers.py    #   hotel / layover logistics
+│   ├── stats.py       #   block hours + FTL limits
+│   ├── perdiem.py     #   mission allowances
+│   ├── training.py    #   licence & medical expiry tracking
+│   └── leave.py       #   leave balance, history, bidding
 ├── server/            # FastAPI + background scheduler
-│   ├── api.py         #   /api/health, /api/roster, /api/sync, /api/export.ics
-│   └── scheduler.py   #   interval job, in-flight lock, change reporting
-├── frontend/static/   # PWA: HTML/CSS/JS, manifest, service worker, icons
-├── cli/               # typer CLI (login-test / sync / show / export-ics / web)
-├── tests/             # 85 tests + HTML fixture
-??? deploy/            # Dockerfile, compose, Caddy HTTPS
-??? twa/               # Android TWA config (Bubblewrap)
-├── .github/workflows/ # CI: ruff + pytest + gitignore assertions
-├── pyproject.toml     # deps, pytest + ruff config
+│   ├── api.py         #   the 14 /api routes
+│   ├── scheduler.py   #   interval job, in-flight lock, change reporting
+│   ├── auth_dep.py    #   optional bearer-token gate
+│   └── logging_setup.py
+├── frontend/static/   # PWA + standalone engine
+│   ├── index.html / style.css / app.js
+│   ├── ecrew-core.js  #   standalone JS engine (login, parser, ICS)
+│   ├── ecrew-core.test.js  # its 31 tests (npm test)
+│   ├── sw.js / manifest.json / icons/
+│   └── .well-known/    #  assetlinks.json for the TWA fallback path
+├── cli/               # typer CLI (14 commands)
+├── tests/             # 231 tests + HTML fixtures
+├── android/           # Capacitor Android project (the shipping APK)
+├── twa/               # legacy Bubblewrap scaffold (reference only)
+├── deploy/            # Dockerfile, compose, Caddy HTTPS
+├── .github/workflows/ # CI (pytest + node + ruff + mypy) and build-apk.yml
+├── pyproject.toml     # deps, pytest + ruff + mypy config
+├── capacitor.config.json
 ├── deploy.sh / deploy.ps1    # one-command deployment
 ├── docker-compose.yml / render.yaml
 ├── NOTES.md           # reverse-engineering recon notes
@@ -375,7 +406,11 @@ ecrew-sync/
   and only sent to `ecrew.airalgerie.dz`.
 - **Never commit your roster or session.** `roster.json` and
   `session_state.json` contain real duty data and a live session UUID; both are
-  gitignored, and CI asserts it on every push.
+  gitignored, and CI asserts it on every push. `leave.json` and
+  `qualifications.json` (leave history, bidding requests, seniority, medical and
+  licence expiry dates) are gitignored for the same reason — both modules seed
+  themselves from the defaults in `backend/leave.py` and
+  `backend/training.py`, so nothing is lost.
 - **The API has no authentication.** Anyone who can reach your instance can read
   your roster and trigger syncs. That is fine on a LAN or behind a VPN, but if
   you expose it to the internet put it behind Caddy basic auth or a private
@@ -412,6 +447,11 @@ now prevents it returning:
 | Sync race (`STATUS["running"]` check) | Two concurrent triggers → **two portal logins** |
 | `NotImplementedError` caught in 4 places | Dead code; nothing ever raised it |
 | `keyring` in requirements | Unused dependency |
+| `logger.warning("... %e", e)` in `weather.py` | `%e` isn't a logging specifier → `TypeError` inside the `except` turned a NOAA timeout into a **500** |
+| `/api/weather/` hit the live network in tests | A slow NOAA endpoint made CI fail at random; hid the bug above |
+| JS `generateICS` emitted `DTEND` == `DTSTART` | RFC 5545 `DTEND` is exclusive → every **all-day duty was zero-length** and vanished from the calendar |
+| JS `parseRosterHtml` ranked arrays by length | The same decoy-array bug the Python parser had already fixed — a longer airport list won on the phone |
+| Version string hardcoded in 4 files (0.2.0 / 1.0.0 / 1.0.0 / "2.0") | The API advertised a version that matched no shipped APK |
 
 ---
 
@@ -435,14 +475,20 @@ Push often, stay lazy. 🛋
 - [x] Atomic JSON store, correct diffing, background scheduler
 - [x] PWA (installable, dark mode, month view, timezone-correct times)
 - [x] ICS export (correct timezone, all-day handling, duplicate-free UIDs)
-- [x] TWA scaffold (icons, manifest, `.well-known` wiring)
-- [x] CI (142 tests + ruff + mypy) and a regression test per fixed bug
+- [x] Live METAR/TAF weather + the 90+ airport network map
+- [x] Real crew composition per flight (portal DutyDetails)
+- [x] Layovers, per diem, FTL stats, licences & leave tracking
+- [x] Capacitor Android app (standalone — syncs with no server)
+- [x] Hermetic test suites: 231 Python + 31 JS, plus ruff + mypy in CI
+- [x] A single version string, asserted across every manifest
 - [ ] **Verify the parser against a live roster capture** — run
       `python -m cli.main login-test` and diff `debug_roster_view.html` against
-      `tests/fixtures/sample_roster.html`. *This is the blocking item.*
-- [ ] Build & sign the APK (needs a JDK 17 + Android SDK machine)
-- [ ] Push notifications on roster changes (when `enableNotifications` is on)
+      `tests/fixtures/sample_roster.html`. *This is the blocking item, and it
+      applies to `ecrew-core.js` as much as to `backend/parser.py`.*
+- [ ] Release-sign the APK (needs your own keystore)
+- [ ] Push notifications on roster changes
 - [ ] Optional auth in front of the API for internet-facing deployments
+- [ ] Retire the legacy `twa/` Bubblewrap scaffold
 
 ---
 

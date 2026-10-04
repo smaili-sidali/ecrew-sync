@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="eCrew Sync",
-    version="0.2.0",
+    version=config.app_version(),
     lifespan=lifespan,
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,

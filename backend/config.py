@@ -31,6 +31,15 @@ DEFAULT_BASE_URL = "https://ecrew.airalgerie.dz/ecrew"
 DEFAULT_DB_FILE = "roster.json"
 DEFAULT_SESSION_FILE = "session_state.json"
 
+# Single source of truth for the version string.
+#
+# It used to be hardcoded in four places that drifted apart (pyproject 0.2.0,
+# package.json 1.0.0, twa-manifest 1.0.0, the NOAA User-Agent claiming 2.0),
+# so the API advertised a version nobody could map to an APK. pyproject.toml is
+# the canonical file; tests/test_version_consistency.py fails if anything else
+# disagrees. Override at runtime only if you really need to.
+APP_VERSION = "2.5.0"
+
 # Duty times arrive from the portal without an offset; they are portal-local.
 DEFAULT_TZ = "Africa/Algiers"
 
@@ -90,6 +99,15 @@ def _bool_env(name: str, default: bool = False) -> bool:
 def base_url() -> str:
     """eCrew portal base URL, without a trailing slash."""
     return _str_env("ECREW_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+
+
+def app_version() -> str:
+    """The one version string, shared by the API and the outgoing User-Agent.
+
+    Sourced from ``APP_VERSION``, which is asserted to match pyproject.toml,
+    package.json and twa/twa-manifest.json by the test suite.
+    """
+    return APP_VERSION
 
 
 def db_file() -> Path:

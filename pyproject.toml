@@ -1,6 +1,6 @@
 [project]
 name = "ecrew-sync"
-version = "0.2.0"
+version = "2.5.0"
 description = "Self-hosted Air Algérie eCrew roster: PWA, JSON API and .ics export"
 requires-python = ">=3.10"
 dependencies = [

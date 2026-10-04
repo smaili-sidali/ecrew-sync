@@ -42,14 +42,44 @@ jobs:
       - name: Test
         run: pytest -q
 
+  js:
+    # ecrew-core.js re-implements the whole backend for the standalone APK and
+    # runs inside the Capacitor app. It had no tests at all, so a portal change
+    # would be caught by the Python suite and still ship broken on the phone.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test ecrew-core.js
+        run: npm test
+
       - name: Verify the secret-bearing files are ignored
         # A committed roster.json or session_state.json would publish real duty
-        # data and a live session UUID to a public repo.
+        # data and a live session UUID to a public repo. leave.json and
+        # qualifications.json hold leave history, bidding requests, seniority and
+        # medical/licence expiry dates — same reasoning, and both modules reseed
+        # themselves from the defaults in code.
         run: |
-          for f in roster.json session_state.json .env; do
+          for f in roster.json session_state.json leave.json qualifications.json .env; do
             if git check-ignore -q "$f"; then
               echo "ok: $f is gitignored"
             else
               echo "::error::$f is NOT gitignored"; exit 1
             fi
           done
+
+      - name: Verify no personal data is tracked
+        # Belt and braces: even if someone force-adds one of the files above,
+        # fail the build rather than publish it.
+        run: |
+          leaked=$(git ls-files -- \
+            roster.json session_state.json leave.json qualifications.json .env \
+            '*.keystore' '*.jks')
+          if [ -n "$leaked" ]; then
+            echo "::error::personal data is tracked: $leaked"; exit 1
+          fi
+          echo "ok: no personal data files are tracked"
